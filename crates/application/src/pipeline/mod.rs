@@ -128,6 +128,38 @@ async fn backup_pipeline(
     let _hash = sha256_of(&archive_path)?;
     emit_stage(ctx, job.id, run.id, PipelineStage::Verify, 1.0);
 
+    // Upload stage — только если заданы targets.
+    if !job.targets.is_empty() {
+        emit_stage(ctx, job.id, run.id, PipelineStage::Upload, 0.0);
+        let archive_filename = archive_path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| run.id.to_string());
+
+        let total = job.targets.len();
+        for (idx, target) in job.targets.iter().enumerate() {
+            let storage = match ctx.storage_registry.get(target.storage_id) {
+                Some(s) => s,
+                None => {
+                    warn!(storage_id = %target.storage_id, "storage not in registry, skipping");
+                    continue;
+                }
+            };
+            let remote = if target.remote_path.is_empty() {
+                archive_filename.clone()
+            } else {
+                format!("{}/{archive_filename}", target.remote_path.trim_end_matches(['/','\\']))
+            };
+            match storage.upload(&archive_path, &remote, None).await {
+                Ok(bytes) => debug!(storage_id = %target.storage_id, bytes, remote, "uploaded"),
+                Err(e) => return Err(PipelineError::Fatal(
+                    format!("upload to storage {}: {e}", target.storage_id)
+                )),
+            }
+            emit_stage(ctx, job.id, run.id, PipelineStage::Upload, (idx + 1) as f32 / total as f32);
+        }
+    }
+
     info!(
         job_id = %job.id,
         bytes_in = run.bytes_in,

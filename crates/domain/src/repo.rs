@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::errors::DomainResult;
-use crate::job::{Job, JobRun};
+use crate::job::{Job, JobRun, JobTarget};
 use crate::schedule::Schedule;
 use crate::source::Source;
 
@@ -37,7 +37,16 @@ pub trait JobRepository: Send + Sync {
     async fn insert_run(&self, run: &JobRun) -> DomainResult<()>;
     async fn update_run(&self, run: &JobRun) -> DomainResult<()>;
     async fn list_runs(&self, job_id: Uuid, limit: u32) -> DomainResult<Vec<JobRun>>;
+    async fn list_all_runs(&self, limit: u32) -> DomainResult<Vec<JobRun>>;
     async fn mark_running_as_interrupted(&self) -> DomainResult<u64>;
+
+    async fn upsert_job_targets(&self, job_id: Uuid, targets: &[JobTarget]) -> DomainResult<()>;
+}
+
+#[async_trait]
+pub trait SettingsRepository: Send + Sync {
+    async fn get(&self, key: &str) -> DomainResult<Option<String>>;
+    async fn set(&self, key: &str, value_json: &str) -> DomainResult<()>;
 }
 
 #[async_trait]

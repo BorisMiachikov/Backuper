@@ -2,3 +2,4 @@
 
 pub mod jobs;
 pub mod sources;
+pub mod storages;

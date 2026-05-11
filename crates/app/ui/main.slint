@@ -1,14 +1,17 @@
 import { Theme } from "theme.slint";
 import { Sidebar } from "widgets/sidebar.slint";
 import { Dashboard, RunRow } from "pages/dashboard.slint";
-import { Placeholder } from "pages/placeholder.slint";
 import { SourcesPage, SourceRow } from "pages/sources.slint";
 import { JobsPage, JobRow } from "pages/jobs.slint";
+import { StoragesPage, StorageRow } from "pages/storages.slint";
+import { JournalPage, JournalRow } from "pages/journal.slint";
+import { SettingsPage } from "pages/settings.slint";
 import { SourceEditDialog } from "dialogs/source_edit.slint";
 import { JobEditDialog } from "dialogs/job_edit.slint";
 import { ScheduleEditDialog } from "dialogs/schedule_edit.slint";
+import { StorageEditDialog } from "dialogs/storage_edit.slint";
 
-export { SourceRow, JobRow, RunRow }
+export { SourceRow, JobRow, RunRow, StorageRow, JournalRow }
 
 export component AppWindow inherits Window {
     title: "Backuper";
@@ -31,6 +34,12 @@ export component AppWindow inherits Window {
 
     // ── Jobs ─────────────────────────────────────────────────────
     in-out property <[JobRow]> jobs: [];
+
+    // ── Storages ─────────────────────────────────────────────────
+    in-out property <[StorageRow]> storages-list: [];
+
+    // ── Journal ──────────────────────────────────────────────────
+    in-out property <[JournalRow]> journal-runs: [];
 
     // Тема
     in-out property <string> color-scheme: "system";
@@ -84,6 +93,26 @@ export component AppWindow inherits Window {
     in-out property <int>    sched-dialog-weekly-minute: 0;
     in-out property <string> sched-dialog-cron-expr: "0 2 * * *";
 
+    // ── Storage dialog ───────────────────────────────────────────
+    in-out property <bool>   stor-dialog-open: false;
+    in-out property <string> stor-dialog-id: "";
+    in-out property <string> stor-dialog-name;
+    in-out property <string> stor-dialog-kind: "local";
+    in-out property <string> stor-dialog-path;
+    in-out property <bool>   stor-dialog-enabled: true;
+
+    callback add-storage();
+    callback edit-storage(string);
+    callback delete-storage(string);
+    callback save-storage();
+    callback cancel-storage-dialog();
+    callback browse-storage-path();
+
+    // ── Settings ─────────────────────────────────────────────────
+    in-out property <string> settings-theme: "system";
+    in-out property <int>    settings-max-parallel: 2;
+    callback save-settings();
+
     // ── Misc ─────────────────────────────────────────────────────
     callback navigate(int);
     callback theme-changed(string);
@@ -125,17 +154,19 @@ export component AppWindow inherits Window {
                 edit-source(id)=> { root.edit-source(id); }
                 delete-source(id) => { root.delete-source(id); }
             }
-            if root.current-page == 3 : Placeholder {
-                title: "Хранилища";
-                hint: "Локальный диск + UNC сейчас, облака — Stage 4.";
+            if root.current-page == 3 : StoragesPage {
+                storages: root.storages-list;
+                add-storage      => { root.add-storage(); }
+                edit-storage(id) => { root.edit-storage(id); }
+                delete-storage(id) => { root.delete-storage(id); }
             }
-            if root.current-page == 4 : Placeholder {
-                title: "Журнал";
-                hint: "Просмотр логов с фильтрами — Stage 2.";
+            if root.current-page == 4 : JournalPage {
+                runs: root.journal-runs;
             }
-            if root.current-page == 5 : Placeholder {
-                title: "Настройки";
-                hint: "Темы, автозапуск, язык, обновления — Stage 6.";
+            if root.current-page == 5 : SettingsPage {
+                theme-value    <=> root.settings-theme;
+                max-parallel   <=> root.settings-max-parallel;
+                save-settings  => { root.save-settings(); }
             }
         }
     }
@@ -177,5 +208,17 @@ export component AppWindow inherits Window {
         cron-expr          <=> root.sched-dialog-cron-expr;
         save   => { root.save-schedule(); }
         cancel => { root.cancel-schedule-dialog(); }
+    }
+
+    StorageEditDialog {
+        open            <=> root.stor-dialog-open;
+        dialog-id       <=> root.stor-dialog-id;
+        name-value      <=> root.stor-dialog-name;
+        kind-value      <=> root.stor-dialog-kind;
+        path-value      <=> root.stor-dialog-path;
+        enabled-value   <=> root.stor-dialog-enabled;
+        save        => { root.save-storage(); }
+        cancel      => { root.cancel-storage-dialog(); }
+        browse-path => { root.browse-storage-path(); }
     }
 }

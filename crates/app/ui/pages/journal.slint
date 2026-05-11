@@ -1,0 +1,162 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+
+export struct JournalRow {
+    id: string,
+    job-name: string,
+    status: string,
+    status-label: string,
+    started-at: string,
+    duration: string,
+    bytes-out: string,
+    error-msg: string,
+}
+
+component JournalEntry inherits Rectangle {
+    in property <JournalRow> data;
+
+    background: Theme.bg-elevated;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: Theme.border;
+    height: 64px;
+
+    property <color> status-color: data.status == "ok"      ? Theme.success
+                                 : data.status == "error"   ? Theme.danger
+                                 : data.status == "running" ? Theme.accent
+                                 : Theme.fg-muted;
+
+    HorizontalLayout {
+        padding: Theme.spacing-lg;
+        spacing: Theme.spacing-lg;
+        alignment: stretch;
+
+        // Статусная полоска слева
+        Rectangle {
+            width: 4px;
+            border-radius: 2px;
+            background: status-color;
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 2px;
+            alignment: center;
+            HorizontalLayout {
+                spacing: Theme.spacing-sm;
+                Text {
+                    text: data.job-name;
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: Theme.fg;
+                }
+                Rectangle {
+                    background: status-color.with-alpha(0.15);
+                    border-radius: 4px;
+                    height: 18px;
+                    HorizontalLayout {
+                        padding-left: 6px; padding-right: 6px;
+                        Text {
+                            text: data.status-label;
+                            font-size: 11px;
+                            color: status-color;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+            if data.error-msg != "" : Text {
+                text: data.error-msg;
+                font-size: 11px;
+                color: Theme.danger;
+                overflow: elide;
+            }
+        }
+
+        VerticalLayout {
+            spacing: 2px;
+            alignment: center;
+            Text {
+                text: data.started-at;
+                font-size: 12px;
+                color: Theme.fg-muted;
+                horizontal-alignment: right;
+            }
+            HorizontalLayout {
+                spacing: Theme.spacing-sm;
+                alignment: end;
+                Text {
+                    text: data.duration;
+                    font-size: 12px;
+                    color: Theme.fg-muted;
+                }
+                if data.bytes-out != "" : Text {
+                    text: data.bytes-out;
+                    font-size: 12px;
+                    color: Theme.fg-muted;
+                }
+            }
+        }
+    }
+}
+
+export component JournalPage inherits Rectangle {
+    in property <[JournalRow]> runs;
+
+    background: Theme.bg;
+
+    VerticalLayout {
+        padding: Theme.spacing-xl;
+        spacing: Theme.spacing-lg;
+
+        VerticalLayout {
+            Text {
+                text: "Журнал";
+                font-size: 22px;
+                font-weight: 700;
+                color: Theme.fg;
+            }
+            Text {
+                text: runs.length == 0
+                    ? "Запусков ещё не было."
+                    : ("Последние " + runs.length + " запусков");
+                font-size: 12px;
+                color: Theme.fg-muted;
+            }
+        }
+
+        if runs.length == 0 : Rectangle {
+            background: Theme.bg-elevated;
+            border-radius: Theme.radius-md;
+            border-width: 1px;
+            border-color: Theme.border;
+            height: 120px;
+            VerticalLayout {
+                padding: Theme.spacing-xl;
+                alignment: center;
+                spacing: Theme.spacing-sm;
+                Text {
+                    text: "📋";
+                    font-size: 40px;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "История запусков пуста";
+                    font-size: 14px;
+                    color: Theme.fg-muted;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+
+        if runs.length > 0 : ScrollView {
+            VerticalLayout {
+                spacing: Theme.spacing-sm;
+                for run[i] in runs : JournalEntry {
+                    data: run;
+                }
+                Rectangle { height: Theme.spacing-md; }
+            }
+        }
+    }
+}

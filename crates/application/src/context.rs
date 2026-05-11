@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use domain::{
-    DomainEvent, JobRepository, Notifier, OneCRunner, SecretVault, SourceRepository,
-    Storage, StorageRepository,
+    DomainEvent, JobRepository, Notifier, OneCRunner, SecretVault, SettingsRepository,
+    SourceRepository, Storage, StorageRepository,
 };
 use tokio::sync::broadcast;
 
@@ -17,6 +17,7 @@ pub struct AppContext {
     pub sources: Arc<dyn SourceRepository>,
     pub jobs: Arc<dyn JobRepository>,
     pub storages: Arc<dyn StorageRepository>,
+    pub settings: Arc<dyn SettingsRepository>,
     pub storage_registry: Arc<StorageRegistry>,
     pub vault: Arc<dyn SecretVault>,
     pub onec: Arc<dyn OneCRunner>,

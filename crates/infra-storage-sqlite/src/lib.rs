@@ -11,7 +11,7 @@ use sqlx::SqlitePool;
 mod mappers;
 pub mod repos;
 
-pub use repos::{SqliteJobRepository, SqliteSourceRepository, SqliteStorageRepository};
+pub use repos::{SqliteJobRepository, SqliteSettingsRepository, SqliteSourceRepository, SqliteStorageRepository};
 
 /// Открывает пул соединений к `app.db` (создаёт файл при отсутствии)
 /// и прогоняет встроенные миграции.

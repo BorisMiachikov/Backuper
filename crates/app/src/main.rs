@@ -33,7 +33,8 @@ fn main() -> anyhow::Result<()> {
 
     // Композиция корня DI и запуск планировщика.
     let ctx = rt.block_on(bootstrap::build_context())?;
-    let scheduler = Arc::new(application::Scheduler::new(ctx.clone(), 2));
+    let max_parallel = rt.block_on(bootstrap::read_max_parallel(&ctx));
+    let scheduler = Arc::new(application::Scheduler::new(ctx.clone(), max_parallel));
 
     {
         let s = scheduler.clone();

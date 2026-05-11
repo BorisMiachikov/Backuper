@@ -4,10 +4,10 @@
 //! идут только через новые миграции, не правкой существующих.
 
 use async_trait::async_trait;
-use domain::repo::StorageDescriptor;
+use domain::repo::{SettingsRepository, StorageDescriptor};
 use domain::{
-    DomainError, DomainResult, Job, JobRepository, JobRun, Schedule, Source, SourceKind,
-    SourceRepository, StorageRepository,
+    DomainError, DomainResult, Job, JobRepository, JobRun, JobTarget, Schedule, Source, SourceKind,
+    SourceRepository, StorageKind, StorageRepository,
 };
 use sqlx::{Row, SqlitePool};
 use time::format_description::well_known::Rfc3339;
@@ -221,7 +221,11 @@ impl JobRepository for SqliteJobRepository {
         .map_err(map_sqlx_err)?;
 
         match row {
-            Some(r) => Ok(Some(row_to_job(&r)?)),
+            Some(r) => {
+                let mut job = row_to_job(&r)?;
+                job.targets = load_targets(&self.pool, job.id).await?;
+                Ok(Some(job))
+            }
             None => Ok(None),
         }
     }
@@ -418,6 +422,19 @@ impl JobRepository for SqliteJobRepository {
         rows.iter().map(row_to_job_run).collect()
     }
 
+    async fn list_all_runs(&self, limit: u32) -> DomainResult<Vec<JobRun>> {
+        let rows = sqlx::query(
+            "SELECT id, job_id, trigger, started_at, finished_at, status,
+                    bytes_in, bytes_out, files_count, archive_path, error_msg, host, attempt
+             FROM job_runs ORDER BY started_at DESC LIMIT ?1",
+        )
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_err)?;
+        rows.iter().map(row_to_job_run).collect()
+    }
+
     async fn mark_running_as_interrupted(&self) -> DomainResult<u64> {
         let res = sqlx::query(
             "UPDATE job_runs SET status = ?1, finished_at = ?2
@@ -429,6 +446,31 @@ impl JobRepository for SqliteJobRepository {
         .await
         .map_err(map_sqlx_err)?;
         Ok(res.rows_affected())
+    }
+
+    async fn upsert_job_targets(&self, job_id: Uuid, targets: &[JobTarget]) -> DomainResult<()> {
+        let id_s = job_id.to_string();
+        let mut tx = self.pool.begin().await.map_err(map_sqlx_err)?;
+        sqlx::query("DELETE FROM job_storages WHERE job_id = ?1")
+            .bind(&id_s)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx_err)?;
+        for target in targets {
+            sqlx::query(
+                "INSERT INTO job_storages (job_id, storage_id, order_idx, remote_path)
+                 VALUES (?1, ?2, ?3, ?4)",
+            )
+            .bind(&id_s)
+            .bind(target.storage_id.to_string())
+            .bind(i64::from(target.order_idx))
+            .bind(&target.remote_path)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx_err)?;
+        }
+        tx.commit().await.map_err(map_sqlx_err)?;
+        Ok(())
     }
 }
 
@@ -528,7 +570,60 @@ fn row_to_job_run(row: &sqlx::sqlite::SqliteRow) -> DomainResult<JobRun> {
     })
 }
 
-// ──────────────────────────── Storages (заглушки до Stage 1.3) ────────────────────────────
+async fn load_targets(pool: &SqlitePool, job_id: Uuid) -> DomainResult<Vec<JobTarget>> {
+    let rows = sqlx::query(
+        "SELECT storage_id, remote_path, order_idx
+         FROM job_storages WHERE job_id = ?1 ORDER BY order_idx",
+    )
+    .bind(job_id.to_string())
+    .fetch_all(pool)
+    .await
+    .map_err(map_sqlx_err)?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let storage_id_s: String = row.try_get("storage_id").map_err(map_sqlx_err)?;
+        let remote_path: String = row.try_get("remote_path").map_err(map_sqlx_err)?;
+        let order_idx_i: i64 = row.try_get("order_idx").map_err(map_sqlx_err)?;
+        out.push(JobTarget {
+            storage_id: Uuid::parse_str(&storage_id_s)
+                .map_err(|e| DomainError::Repository(format!("parse storage_id: {e}")))?,
+            remote_path,
+            order_idx: i16::try_from(order_idx_i).unwrap_or(0),
+        });
+    }
+    Ok(out)
+}
+
+fn storage_kind_from_str(s: &str) -> DomainResult<StorageKind> {
+    match s {
+        "local"  => Ok(StorageKind::Local),
+        "smb"    => Ok(StorageKind::Smb),
+        "yadisk" => Ok(StorageKind::YaDisk),
+        "gdrive" => Ok(StorageKind::GDrive),
+        _ => Err(DomainError::Repository(format!("unknown storage kind: {s}"))),
+    }
+}
+
+fn row_to_storage_descriptor(row: &sqlx::sqlite::SqliteRow) -> DomainResult<StorageDescriptor> {
+    let id_s: String = row.try_get("id").map_err(map_sqlx_err)?;
+    let name: String = row.try_get("name").map_err(map_sqlx_err)?;
+    let kind_s: String = row.try_get("kind").map_err(map_sqlx_err)?;
+    let config_json: String = row.try_get("config_json").map_err(map_sqlx_err)?;
+    let secret_ref: Option<String> = row.try_get("secret_ref").map_err(map_sqlx_err)?;
+    let enabled_i: i64 = row.try_get("enabled").map_err(map_sqlx_err)?;
+    Ok(StorageDescriptor {
+        id: Uuid::parse_str(&id_s)
+            .map_err(|e| DomainError::Repository(format!("parse uuid: {e}")))?,
+        name,
+        kind: storage_kind_from_str(&kind_s)?,
+        config_json,
+        secret_ref,
+        enabled: enabled_i != 0,
+    })
+}
+
+// ──────────────────────────── Storages ────────────────────────────
 
 #[derive(Clone)]
 pub struct SqliteStorageRepository {
@@ -543,17 +638,107 @@ impl SqliteStorageRepository {
 
 #[async_trait]
 impl StorageRepository for SqliteStorageRepository {
-    async fn get(&self, _id: Uuid) -> DomainResult<Option<StorageDescriptor>> {
-        Ok(None)
+    async fn get(&self, id: Uuid) -> DomainResult<Option<StorageDescriptor>> {
+        let row = sqlx::query(
+            "SELECT id, name, kind, config_json, secret_ref, enabled
+             FROM storages WHERE id = ?1",
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_err)?;
+        match row {
+            Some(r) => Ok(Some(row_to_storage_descriptor(&r)?)),
+            None => Ok(None),
+        }
     }
+
     async fn list(&self) -> DomainResult<Vec<StorageDescriptor>> {
-        Ok(Vec::new())
+        let rows = sqlx::query(
+            "SELECT id, name, kind, config_json, secret_ref, enabled
+             FROM storages ORDER BY name COLLATE NOCASE",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_err)?;
+        rows.iter().map(row_to_storage_descriptor).collect()
     }
-    async fn upsert(&self, _desc: &StorageDescriptor) -> DomainResult<()> {
-        Err(DomainError::Repository("storages.upsert: stage 1.3".into()))
+
+    async fn upsert(&self, desc: &StorageDescriptor) -> DomainResult<()> {
+        sqlx::query(
+            "INSERT INTO storages (id, name, kind, config_json, secret_ref, enabled, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'))
+             ON CONFLICT(id) DO UPDATE SET
+                name        = excluded.name,
+                kind        = excluded.kind,
+                config_json = excluded.config_json,
+                secret_ref  = excluded.secret_ref,
+                enabled     = excluded.enabled",
+        )
+        .bind(desc.id.to_string())
+        .bind(&desc.name)
+        .bind(desc.kind.as_str())
+        .bind(&desc.config_json)
+        .bind(desc.secret_ref.as_deref())
+        .bind(i64::from(desc.enabled))
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_err)?;
+        Ok(())
     }
-    async fn delete(&self, _id: Uuid) -> DomainResult<()> {
-        Err(DomainError::Repository("storages.delete: stage 1.3".into()))
+
+    async fn delete(&self, id: Uuid) -> DomainResult<()> {
+        sqlx::query("DELETE FROM storages WHERE id = ?1")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await
+            .map_err(map_sqlx_err)?;
+        Ok(())
+    }
+}
+
+// ──────────────────────────── Settings ────────────────────────────
+
+#[derive(Clone)]
+pub struct SqliteSettingsRepository {
+    pub pool: SqlitePool,
+}
+
+impl SqliteSettingsRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl SettingsRepository for SqliteSettingsRepository {
+    async fn get(&self, key: &str) -> DomainResult<Option<String>> {
+        let row = sqlx::query("SELECT value_json FROM settings WHERE key = ?1")
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(map_sqlx_err)?;
+        match row {
+            Some(r) => {
+                let val: String = r.try_get("value_json").map_err(map_sqlx_err)?;
+                Ok(Some(val))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn set(&self, key: &str, value_json: &str) -> DomainResult<()> {
+        sqlx::query(
+            "INSERT INTO settings (key, value_json, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+        )
+        .bind(key)
+        .bind(value_json)
+        .bind(now_rfc3339())
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_err)?;
+        Ok(())
     }
 }
 
