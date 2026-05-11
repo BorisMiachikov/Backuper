@@ -394,7 +394,25 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
     }
 
     // ── Подписка на DomainEvent → перерисовка модели ──────────────
-    spawn_event_listener(window, ctx);
+    spawn_event_listener(window, ctx.clone());
+
+    // ── Периодическое обновление таймеров (каждые 60 сек) ─────────
+    {
+        let ctx = ctx.clone();
+        let weak = window.as_weak();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            interval.tick().await; // пропустить первый тик
+            loop {
+                interval.tick().await;
+                let (rows, counts, recent) = load_rows_and_counts(&ctx).await;
+                let weak = weak.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    apply_to_window(weak, rows, counts, recent);
+                });
+            }
+        });
+    }
 }
 
 fn refresh(window: &AppWindow, ctx: Arc<AppContext>) {
