@@ -54,6 +54,7 @@ export component AppWindow inherits Window {
     in-out property <string> job-dialog-source;
     in-out property <bool>   job-dialog-enabled: true;
     in-out property <[string]> job-dialog-sources: [];
+    in-out property <string> job-dialog-id: "";    // "" = add, uuid = edit
 
     callback add-job();
     callback edit-job(string);
@@ -91,10 +92,11 @@ export component AppWindow inherits Window {
             }
             if root.current-page == 1 : JobsPage {
                 jobs: root.jobs;
-                add-job        => { root.add-job(); }
-                run-job-now(id)=> { root.run-job-now(id); }
-                edit-job(id)   => { root.edit-job(id); }
-                delete-job(id) => { root.delete-job(id); }
+                add-job          => { root.add-job(); }
+                run-job-now(id)  => { root.run-job-now(id); }
+                edit-job(id)     => { root.edit-job(id); }
+                toggle-job(id)   => { root.toggle-job(id); }
+                delete-job(id)   => { root.delete-job(id); }
             }
             if root.current-page == 2 : SourcesPage {
                 sources: root.sources;
@@ -131,6 +133,7 @@ export component AppWindow inherits Window {
 
     JobEditDialog {
         open <=> root.job-dialog-open;
+        dialog-id <=> root.job-dialog-id;
         name-value <=> root.job-dialog-name;
         source-value <=> root.job-dialog-source;
         enabled-value <=> root.job-dialog-enabled;
