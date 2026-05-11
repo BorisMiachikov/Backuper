@@ -1,0 +1,192 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { Card } from "../widgets/card.slint";
+import { PrimaryButton, GhostButton } from "../widgets/button.slint";
+
+export struct JobRow {
+    id: string,
+    name: string,
+    source-name: string,
+    last-run: string,
+    status: string,          // "ok" | "error" | "running" | "idle" | "disabled"
+    status-label: string,    // человекочитаемая метка
+    progress: float,         // 0..1
+    enabled: bool,
+}
+
+component JobCard inherits Rectangle {
+    in property <JobRow> data;
+    callback run-now;
+    callback edit;
+    callback remove;
+
+    // Вычисляем цвет статуса один раз — Slint не разрешает top-level функции.
+    property <color> status-color:
+        data.status == "ok"      ? Theme.success
+      : data.status == "error"   ? Theme.danger
+      : data.status == "running" ? Theme.accent
+      :                            Theme.fg-muted;
+
+    background: Theme.bg-elevated;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: Theme.border;
+    height: 120px;
+
+    VerticalLayout {
+        padding: Theme.spacing-lg;
+        spacing: Theme.spacing-sm;
+
+        HorizontalLayout {
+            spacing: Theme.spacing-md;
+            alignment: stretch;
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 2px;
+                HorizontalLayout {
+                    spacing: Theme.spacing-sm;
+                    Text {
+                        text: data.name;
+                        font-size: 15px;
+                        font-weight: 600;
+                        color: Theme.fg;
+                    }
+                    Rectangle {
+                        background: root.status-color.with-alpha(0.15);
+                        border-radius: 4px;
+                        height: 18px;
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            padding-right: 6px;
+                            Text {
+                                text: data.status-label;
+                                font-size: 11px;
+                                color: root.status-color;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+                Text {
+                    text: "📂 " + data.source-name;
+                    font-size: 12px;
+                    color: Theme.fg-muted;
+                }
+                Text {
+                    text: "⏱ " + data.last-run;
+                    font-size: 11px;
+                    color: Theme.fg-muted;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: Theme.spacing-sm;
+                alignment: end;
+                PrimaryButton {
+                    width: 130px;
+                    text: data.status == "running" ? "Выполняется…" : "▶ Выполнить";
+                    enabled: data.enabled && data.status != "running";
+                    clicked => { root.run-now(); }
+                }
+                GhostButton {
+                    width: 80px;
+                    text: "Удалить";
+                    destructive: true;
+                    clicked => { root.remove(); }
+                }
+            }
+        }
+
+        // Progress-bar отображаем только во время выполнения
+        if data.status == "running" : Rectangle {
+            height: 4px;
+            border-radius: 2px;
+            background: Theme.border;
+            Rectangle {
+                x: 0;
+                y: 0;
+                width: parent.width * data.progress;
+                height: parent.height;
+                background: Theme.accent;
+                border-radius: 2px;
+            }
+        }
+    }
+}
+
+export component JobsPage inherits Rectangle {
+    in property <[JobRow]> jobs;
+    callback add-job();
+    callback run-job-now(string);
+    callback edit-job(string);
+    callback delete-job(string);
+
+    background: Theme.bg;
+
+    VerticalLayout {
+        padding: Theme.spacing-xl;
+        spacing: Theme.spacing-lg;
+
+        HorizontalLayout {
+            VerticalLayout {
+                horizontal-stretch: 1;
+                Text {
+                    text: "Задания";
+                    font-size: 22px;
+                    font-weight: 700;
+                    color: Theme.fg;
+                }
+                Text {
+                    text: jobs.length == 0 ? "Пока ничего не настроено." : "Всего: " + jobs.length;
+                    font-size: 12px;
+                    color: Theme.fg-muted;
+                }
+            }
+            PrimaryButton {
+                width: 160px;
+                text: "+ Новое задание";
+                clicked => { root.add-job(); }
+            }
+        }
+
+        if jobs.length == 0 : Card {
+            VerticalLayout {
+                padding: Theme.spacing-xl;
+                alignment: center;
+                spacing: Theme.spacing-sm;
+                Text {
+                    text: "⚙";
+                    font-size: 48px;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "Создайте первое задание";
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: Theme.fg;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "Выберите источник и нажмите «Выполнить» — Backuper заархивирует данные.";
+                    font-size: 13px;
+                    color: Theme.fg-muted;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+
+        if jobs.length > 0 : ScrollView {
+            VerticalLayout {
+                spacing: Theme.spacing-sm;
+                for job[i] in jobs : JobCard {
+                    data: job;
+                    run-now => { root.run-job-now(job.id); }
+                    edit    => { root.edit-job(job.id); }
+                    remove  => { root.delete-job(job.id); }
+                }
+                Rectangle { height: Theme.spacing-md; }
+            }
+        }
+    }
+}

@@ -23,6 +23,14 @@ pub async fn build_context() -> anyhow::Result<AppContext> {
     let jobs = Arc::new(SqliteJobRepository::new(pool.clone()));
     let storages = Arc::new(SqliteStorageRepository::new(pool.clone()));
 
+    // Восстановление после краша: помечаем все running/pending runs как interrupted.
+    use domain::JobRepository;
+    match jobs.mark_running_as_interrupted().await {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(interrupted = n, "recovered interrupted runs"),
+        Err(e) => tracing::warn!(error = %e, "could not mark interrupted runs"),
+    }
+
     // Vault: Stage 0 — in-memory. Stage 5 — DPAPI + AES-GCM.
     let vault = Arc::new(InMemoryVault::new());
 

@@ -14,7 +14,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::mappers::source_kind;
+use crate::mappers::{job_run, source_kind};
 
 fn map_sqlx_err(e: sqlx::Error) -> DomainError {
     DomainError::Repository(e.to_string())
@@ -194,7 +194,7 @@ async fn load_tags(pool: &SqlitePool, source_id: &str) -> DomainResult<Vec<Strin
     Ok(tags)
 }
 
-// ──────────────────────────── Jobs (заглушки до Stage 1.2) ────────────────────────────
+// ──────────────────────────── Jobs ────────────────────────────
 
 #[derive(Clone)]
 pub struct SqliteJobRepository {
@@ -209,36 +209,266 @@ impl SqliteJobRepository {
 
 #[async_trait]
 impl JobRepository for SqliteJobRepository {
-    async fn get(&self, _id: Uuid) -> DomainResult<Option<Job>> {
-        Ok(None)
+    async fn get(&self, id: Uuid) -> DomainResult<Option<Job>> {
+        let row = sqlx::query(
+            "SELECT id, name, source_id, enabled, archive_cfg, retention_cfg, exclude_json,
+                    pre_cmd, post_cmd, priority, created_at, updated_at
+             FROM jobs WHERE id = ?1",
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_err)?;
+
+        match row {
+            Some(r) => Ok(Some(row_to_job(&r)?)),
+            None => Ok(None),
+        }
     }
+
     async fn list(&self) -> DomainResult<Vec<Job>> {
-        Ok(Vec::new())
+        let rows = sqlx::query(
+            "SELECT id, name, source_id, enabled, archive_cfg, retention_cfg, exclude_json,
+                    pre_cmd, post_cmd, priority, created_at, updated_at
+             FROM jobs ORDER BY name COLLATE NOCASE",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_err)?;
+        rows.iter().map(row_to_job).collect()
     }
-    async fn upsert(&self, _job: &Job) -> DomainResult<()> {
-        Err(DomainError::Repository("jobs.upsert: stage 1.2".into()))
+
+    async fn upsert(&self, job: &Job) -> DomainResult<()> {
+        let archive_cfg = serde_json::to_string(&job.archive)
+            .map_err(|e| DomainError::Repository(format!("serialize archive_cfg: {e}")))?;
+        let retention_cfg = serde_json::to_string(&job.retention)
+            .map_err(|e| DomainError::Repository(format!("serialize retention_cfg: {e}")))?;
+        let exclude_json = serde_json::to_string(&job.exclude)
+            .map_err(|e| DomainError::Repository(format!("serialize exclude: {e}")))?;
+        let created_at = job
+            .created_at
+            .format(&Rfc3339)
+            .map_err(|e| DomainError::Repository(format!("format created_at: {e}")))?;
+        let updated_at = now_rfc3339();
+
+        sqlx::query(
+            "INSERT INTO jobs (id, name, source_id, enabled, archive_cfg, retention_cfg,
+                               exclude_json, pre_cmd, post_cmd, priority, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+             ON CONFLICT(id) DO UPDATE SET
+                name          = excluded.name,
+                source_id     = excluded.source_id,
+                enabled       = excluded.enabled,
+                archive_cfg   = excluded.archive_cfg,
+                retention_cfg = excluded.retention_cfg,
+                exclude_json  = excluded.exclude_json,
+                pre_cmd       = excluded.pre_cmd,
+                post_cmd      = excluded.post_cmd,
+                priority      = excluded.priority,
+                updated_at    = excluded.updated_at",
+        )
+        .bind(job.id.to_string())
+        .bind(&job.name)
+        .bind(job.source_id.to_string())
+        .bind(i64::from(job.enabled))
+        .bind(&archive_cfg)
+        .bind(&retention_cfg)
+        .bind(&exclude_json)
+        .bind(job.pre_cmd.as_deref())
+        .bind(job.post_cmd.as_deref())
+        .bind(i64::from(job.priority))
+        .bind(&created_at)
+        .bind(&updated_at)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_err)?;
+        Ok(())
     }
-    async fn delete(&self, _id: Uuid) -> DomainResult<()> {
-        Err(DomainError::Repository("jobs.delete: stage 1.2".into()))
+
+    async fn delete(&self, id: Uuid) -> DomainResult<()> {
+        sqlx::query("DELETE FROM jobs WHERE id = ?1")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await
+            .map_err(map_sqlx_err)?;
+        Ok(())
     }
+
     async fn list_schedules(&self) -> DomainResult<Vec<Schedule>> {
+        // Stage 1.3 — добавим, когда дойдём до cron-логики.
         Ok(Vec::new())
     }
+
     async fn upsert_schedule(&self, _schedule: &Schedule) -> DomainResult<()> {
-        Err(DomainError::Repository("schedules.upsert: stage 1.2".into()))
+        Err(DomainError::Repository("schedules.upsert: stage 1.3".into()))
     }
-    async fn insert_run(&self, _run: &JobRun) -> DomainResult<()> {
-        Err(DomainError::Repository("runs.insert: stage 1.2".into()))
+
+    async fn insert_run(&self, run: &JobRun) -> DomainResult<()> {
+        let started = run
+            .started_at
+            .format(&Rfc3339)
+            .map_err(|e| DomainError::Repository(format!("format started_at: {e}")))?;
+        let finished = run
+            .finished_at
+            .map(|t| t.format(&Rfc3339))
+            .transpose()
+            .map_err(|e| DomainError::Repository(format!("format finished_at: {e}")))?;
+        sqlx::query(
+            "INSERT INTO job_runs (id, job_id, trigger, started_at, finished_at, status,
+                                   bytes_in, bytes_out, files_count, archive_path,
+                                   error_msg, host, attempt)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        )
+        .bind(run.id.to_string())
+        .bind(run.job_id.to_string())
+        .bind(job_run::trigger_to_str(run.trigger))
+        .bind(&started)
+        .bind(finished)
+        .bind(job_run::status_to_str(run.status))
+        .bind(i64::try_from(run.bytes_in).unwrap_or(i64::MAX))
+        .bind(i64::try_from(run.bytes_out).unwrap_or(i64::MAX))
+        .bind(i64::try_from(run.files_count).unwrap_or(i64::MAX))
+        .bind(run.archive_path.as_deref())
+        .bind(run.error_msg.as_deref())
+        .bind(&run.host)
+        .bind(i64::from(run.attempt))
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_err)?;
+        Ok(())
     }
-    async fn update_run(&self, _run: &JobRun) -> DomainResult<()> {
-        Err(DomainError::Repository("runs.update: stage 1.2".into()))
+
+    async fn update_run(&self, run: &JobRun) -> DomainResult<()> {
+        let finished = run
+            .finished_at
+            .map(|t| t.format(&Rfc3339))
+            .transpose()
+            .map_err(|e| DomainError::Repository(format!("format finished_at: {e}")))?;
+        sqlx::query(
+            "UPDATE job_runs SET
+                finished_at  = ?1,
+                status       = ?2,
+                bytes_in     = ?3,
+                bytes_out    = ?4,
+                files_count  = ?5,
+                archive_path = ?6,
+                error_msg    = ?7,
+                attempt      = ?8
+             WHERE id = ?9",
+        )
+        .bind(finished)
+        .bind(job_run::status_to_str(run.status))
+        .bind(i64::try_from(run.bytes_in).unwrap_or(i64::MAX))
+        .bind(i64::try_from(run.bytes_out).unwrap_or(i64::MAX))
+        .bind(i64::try_from(run.files_count).unwrap_or(i64::MAX))
+        .bind(run.archive_path.as_deref())
+        .bind(run.error_msg.as_deref())
+        .bind(i64::from(run.attempt))
+        .bind(run.id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_err)?;
+        Ok(())
     }
-    async fn list_runs(&self, _job_id: Uuid, _limit: u32) -> DomainResult<Vec<JobRun>> {
-        Ok(Vec::new())
+
+    async fn list_runs(&self, job_id: Uuid, limit: u32) -> DomainResult<Vec<JobRun>> {
+        let rows = sqlx::query(
+            "SELECT id, job_id, trigger, started_at, finished_at, status,
+                    bytes_in, bytes_out, files_count, archive_path, error_msg, host, attempt
+             FROM job_runs WHERE job_id = ?1 ORDER BY started_at DESC LIMIT ?2",
+        )
+        .bind(job_id.to_string())
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_err)?;
+        rows.iter().map(row_to_job_run).collect()
     }
+
     async fn mark_running_as_interrupted(&self) -> DomainResult<u64> {
-        Ok(0)
+        let res = sqlx::query(
+            "UPDATE job_runs SET status = ?1, finished_at = ?2
+             WHERE status IN ('running', 'pending')",
+        )
+        .bind(job_run::status_to_str(domain::JobRunStatus::Interrupted))
+        .bind(now_rfc3339())
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_err)?;
+        Ok(res.rows_affected())
     }
+}
+
+fn row_to_job(row: &sqlx::sqlite::SqliteRow) -> DomainResult<Job> {
+    let id_s: String = row.try_get("id").map_err(map_sqlx_err)?;
+    let source_id_s: String = row.try_get("source_id").map_err(map_sqlx_err)?;
+    let name: String = row.try_get("name").map_err(map_sqlx_err)?;
+    let enabled_i: i64 = row.try_get("enabled").map_err(map_sqlx_err)?;
+    let archive_s: String = row.try_get("archive_cfg").map_err(map_sqlx_err)?;
+    let retention_s: String = row.try_get("retention_cfg").map_err(map_sqlx_err)?;
+    let exclude_s: String = row.try_get("exclude_json").map_err(map_sqlx_err)?;
+    let pre_cmd: Option<String> = row.try_get("pre_cmd").map_err(map_sqlx_err)?;
+    let post_cmd: Option<String> = row.try_get("post_cmd").map_err(map_sqlx_err)?;
+    let priority_i: i64 = row.try_get("priority").map_err(map_sqlx_err)?;
+    let created_s: String = row.try_get("created_at").map_err(map_sqlx_err)?;
+    let updated_s: String = row.try_get("updated_at").map_err(map_sqlx_err)?;
+
+    Ok(Job {
+        id: Uuid::parse_str(&id_s)
+            .map_err(|e| DomainError::Repository(format!("parse uuid: {e}")))?,
+        source_id: Uuid::parse_str(&source_id_s)
+            .map_err(|e| DomainError::Repository(format!("parse source uuid: {e}")))?,
+        name,
+        enabled: enabled_i != 0,
+        archive: serde_json::from_str(&archive_s)
+            .map_err(|e| DomainError::Repository(format!("parse archive_cfg: {e}")))?,
+        retention: serde_json::from_str(&retention_s)
+            .map_err(|e| DomainError::Repository(format!("parse retention_cfg: {e}")))?,
+        exclude: serde_json::from_str(&exclude_s)
+            .map_err(|e| DomainError::Repository(format!("parse exclude: {e}")))?,
+        pre_cmd,
+        post_cmd,
+        priority: i16::try_from(priority_i).unwrap_or(0),
+        targets: Vec::new(),
+        created_at: parse_rfc3339(&created_s)?,
+        updated_at: parse_rfc3339(&updated_s)?,
+    })
+}
+
+fn row_to_job_run(row: &sqlx::sqlite::SqliteRow) -> DomainResult<JobRun> {
+    let id_s: String = row.try_get("id").map_err(map_sqlx_err)?;
+    let job_id_s: String = row.try_get("job_id").map_err(map_sqlx_err)?;
+    let trigger_s: String = row.try_get("trigger").map_err(map_sqlx_err)?;
+    let status_s: String = row.try_get("status").map_err(map_sqlx_err)?;
+    let started_s: String = row.try_get("started_at").map_err(map_sqlx_err)?;
+    let finished_s: Option<String> = row.try_get("finished_at").map_err(map_sqlx_err)?;
+    let bytes_in: i64 = row.try_get("bytes_in").map_err(map_sqlx_err)?;
+    let bytes_out: i64 = row.try_get("bytes_out").map_err(map_sqlx_err)?;
+    let files_count: i64 = row.try_get("files_count").map_err(map_sqlx_err)?;
+    let archive_path: Option<String> = row.try_get("archive_path").map_err(map_sqlx_err)?;
+    let error_msg: Option<String> = row.try_get("error_msg").map_err(map_sqlx_err)?;
+    let host: String = row.try_get("host").map_err(map_sqlx_err)?;
+    let attempt_i: i64 = row.try_get("attempt").map_err(map_sqlx_err)?;
+
+    Ok(JobRun {
+        id: Uuid::parse_str(&id_s)
+            .map_err(|e| DomainError::Repository(format!("parse uuid: {e}")))?,
+        job_id: Uuid::parse_str(&job_id_s)
+            .map_err(|e| DomainError::Repository(format!("parse job uuid: {e}")))?,
+        trigger: job_run::trigger_from_str(&trigger_s)
+            .map_err(|e| DomainError::Repository(e.to_string()))?,
+        status: job_run::status_from_str(&status_s)
+            .map_err(|e| DomainError::Repository(e.to_string()))?,
+        started_at: parse_rfc3339(&started_s)?,
+        finished_at: finished_s.as_deref().map(parse_rfc3339).transpose()?,
+        bytes_in: u64::try_from(bytes_in).unwrap_or(0),
+        bytes_out: u64::try_from(bytes_out).unwrap_or(0),
+        files_count: u64::try_from(files_count).unwrap_or(0),
+        archive_path,
+        error_msg,
+        host,
+        attempt: u32::try_from(attempt_i).unwrap_or(0),
+    })
 }
 
 // ──────────────────────────── Storages (заглушки до Stage 1.3) ────────────────────────────

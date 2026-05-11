@@ -1,20 +1,13 @@
-import { Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Sidebar } from "widgets/sidebar.slint";
 import { Dashboard } from "pages/dashboard.slint";
 import { Placeholder } from "pages/placeholder.slint";
 import { SourcesPage, SourceRow } from "pages/sources.slint";
+import { JobsPage, JobRow } from "pages/jobs.slint";
 import { SourceEditDialog } from "dialogs/source_edit.slint";
+import { JobEditDialog } from "dialogs/job_edit.slint";
 
-export { SourceRow }
-
-export struct JobRow {
-    id: string,
-    name: string,
-    last-run: string,
-    status: string,
-    progress: float,
-}
+export { SourceRow, JobRow }
 
 export component AppWindow inherits Window {
     title: "Backuper";
@@ -25,20 +18,22 @@ export component AppWindow inherits Window {
 
     in-out property <int> current-page: 0;
 
-    // Jobs (Stage 1.2)
-    in-out property <[JobRow]> jobs: [];
+    // ── Dashboard ────────────────────────────────────────────────
     in-out property <int> total-jobs: 0;
     in-out property <int> ok-today: 0;
     in-out property <int> failed-today: 0;
     in-out property <string> next-run: "—";
 
-    // Sources
+    // ── Sources ──────────────────────────────────────────────────
     in-out property <[SourceRow]> sources: [];
 
-    // Тема (зарезервировано на Stage 6)
+    // ── Jobs ─────────────────────────────────────────────────────
+    in-out property <[JobRow]> jobs: [];
+
+    // Тема
     in-out property <string> color-scheme: "system";
 
-    // Диалог редактирования источника
+    // ── Source dialog ────────────────────────────────────────────
     in-out property <bool>   src-dialog-open: false;
     in-out property <string> src-dialog-name;
     in-out property <string> src-dialog-path;
@@ -46,20 +41,32 @@ export component AppWindow inherits Window {
     in-out property <string> src-dialog-tags;
     in-out property <string> src-dialog-kind: "folder";
 
-    callback navigate(int);
-    callback run-job-now(string);
-    callback edit-job(string);
-    callback toggle-job(string);
-    callback delete-job(string);
-    callback open-logs(string);
-    callback theme-changed(string);
-
     callback add-source();
     callback edit-source(string);
     callback delete-source(string);
-    callback save-source();             // submit формы
+    callback save-source();
     callback cancel-source-dialog();
     callback browse-source-path();
+
+    // ── Job dialog ───────────────────────────────────────────────
+    in-out property <bool>   job-dialog-open: false;
+    in-out property <string> job-dialog-name;
+    in-out property <string> job-dialog-source;
+    in-out property <bool>   job-dialog-enabled: true;
+    in-out property <[string]> job-dialog-sources: [];
+
+    callback add-job();
+    callback edit-job(string);
+    callback delete-job(string);
+    callback save-job();
+    callback cancel-job-dialog();
+    callback run-job-now(string);
+    callback toggle-job(string);
+    callback open-logs(string);
+
+    // ── Misc ─────────────────────────────────────────────────────
+    callback navigate(int);
+    callback theme-changed(string);
 
     HorizontalLayout {
         spacing: 0;
@@ -82,9 +89,12 @@ export component AppWindow inherits Window {
                 failed-today: root.failed-today;
                 next-run: root.next-run;
             }
-            if root.current-page == 1 : Placeholder {
-                title: "Задания";
-                hint: "CRUD заданий, фильтры и «Выполнить сейчас» — Stage 1.2.";
+            if root.current-page == 1 : JobsPage {
+                jobs: root.jobs;
+                add-job        => { root.add-job(); }
+                run-job-now(id)=> { root.run-job-now(id); }
+                edit-job(id)   => { root.edit-job(id); }
+                delete-job(id) => { root.delete-job(id); }
             }
             if root.current-page == 2 : SourcesPage {
                 sources: root.sources;
@@ -107,7 +117,6 @@ export component AppWindow inherits Window {
         }
     }
 
-    // Модальный диалог поверх всего окна
     SourceEditDialog {
         open <=> root.src-dialog-open;
         name-value <=> root.src-dialog-name;
@@ -118,5 +127,15 @@ export component AppWindow inherits Window {
         save   => { root.save-source(); }
         cancel => { root.cancel-source-dialog(); }
         browse-path => { root.browse-source-path(); }
+    }
+
+    JobEditDialog {
+        open <=> root.job-dialog-open;
+        name-value <=> root.job-dialog-name;
+        source-value <=> root.job-dialog-source;
+        enabled-value <=> root.job-dialog-enabled;
+        source-options: root.job-dialog-sources;
+        save   => { root.save-job(); }
+        cancel => { root.cancel-job-dialog(); }
     }
 }

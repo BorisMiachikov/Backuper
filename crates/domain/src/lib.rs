@@ -18,7 +18,7 @@ pub mod vault;
 
 pub use archive::{ArchiveConfig, ArchiveFormat, ExcludeRules, RetentionPolicy};
 pub use errors::{DomainError, DomainResult};
-pub use events::{DomainEvent, JobRunFinished, JobRunStarted, StageProgress};
+pub use events::{DomainEvent, JobRunFinished, JobRunStarted, PipelineStage, StageProgress};
 pub use job::{Job, JobRun, JobRunStatus, JobTrigger, RunTrigger};
 pub use notifier::{Notification, NotificationLevel, Notifier, NotifierError};
 pub use onec::OneCRunner;

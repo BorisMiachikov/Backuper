@@ -35,6 +35,12 @@ chrono = { workspace = true }
 cron = { workspace = true }
 uuid = { workspace = true }
 
+# Pipeline stub deps — будут вынесены в infra-archive trait на Stage 2.
+walkdir = { workspace = true }
+zip = { workspace = true }
+sha2 = { workspace = true }
+sysinfo = { workspace = true }
+
 [dev-dependencies]
 mockall = { workspace = true }
 proptest = { workspace = true }
