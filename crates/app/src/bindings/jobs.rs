@@ -10,6 +10,7 @@ pub struct JobView<'a> {
     pub job: &'a Job,
     pub source_name: &'a str,
     pub latest_run: Option<&'a JobRun>,
+    pub next_run_at: &'a str,
 }
 
 pub fn job_to_row(view: &JobView<'_>) -> crate::JobRow {
@@ -19,6 +20,7 @@ pub fn job_to_row(view: &JobView<'_>) -> crate::JobRow {
         name: SharedString::from(view.job.name.as_str()),
         source_name: SharedString::from(view.source_name),
         last_run: SharedString::from(render_last_run(view.latest_run)),
+        next_run_at: SharedString::from(view.next_run_at),
         status: SharedString::from(status),
         status_label: SharedString::from(label),
         progress: 0.0,

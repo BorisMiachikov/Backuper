@@ -8,6 +8,7 @@ export struct JobRow {
     name: string,
     source-name: string,
     last-run: string,
+    next-run-at: string,      // "" если расписания нет
     status: string,          // "ok" | "error" | "running" | "idle" | "disabled"
     status-label: string,    // человекочитаемая метка
     progress: float,         // 0..1
@@ -19,6 +20,7 @@ component JobCard inherits Rectangle {
     callback run-now;
     callback edit;
     callback toggle;
+    callback schedule;
     callback remove;
 
     // Вычисляем цвет статуса один раз — Slint не разрешает top-level функции.
@@ -32,7 +34,7 @@ component JobCard inherits Rectangle {
     border-radius: Theme.radius-md;
     border-width: 1px;
     border-color: Theme.border;
-    height: 120px;
+    height: 148px;
 
     VerticalLayout {
         padding: Theme.spacing-lg;
@@ -42,6 +44,7 @@ component JobCard inherits Rectangle {
             spacing: Theme.spacing-md;
             alignment: stretch;
 
+            // ── Левая часть: информация ──────────────────────────
             VerticalLayout {
                 horizontal-stretch: 1;
                 spacing: 2px;
@@ -79,32 +82,55 @@ component JobCard inherits Rectangle {
                     font-size: 11px;
                     color: Theme.fg-muted;
                 }
+                if data.enabled && data.next-run-at != "" : Text {
+                    text: "🕐 " + data.next-run-at;
+                    font-size: 11px;
+                    color: Theme.fg-muted;
+                }
             }
 
-            HorizontalLayout {
+            // ── Правая часть: кнопки в две строки ───────────────
+            VerticalLayout {
                 spacing: Theme.spacing-sm;
-                alignment: end;
-                PrimaryButton {
-                    width: 130px;
-                    text: data.status == "running" ? "Выполняется…" : "▶ Выполнить";
-                    enabled: data.enabled && data.status != "running";
-                    clicked => { root.run-now(); }
+                alignment: center;
+
+                // Строка 1: основное действие
+                HorizontalLayout {
+                    spacing: Theme.spacing-sm;
+                    alignment: end;
+                    PrimaryButton {
+                        width: 130px;
+                        text: data.status == "running" ? "Выполняется…" : "▶ Выполнить";
+                        enabled: data.enabled && data.status != "running";
+                        clicked => { root.run-now(); }
+                    }
                 }
-                GhostButton {
-                    width: 90px;
-                    text: data.enabled ? "Выключить" : "Включить";
-                    clicked => { root.toggle(); }
-                }
-                GhostButton {
-                    width: 90px;
-                    text: "Изменить";
-                    clicked => { root.edit(); }
-                }
-                GhostButton {
-                    width: 80px;
-                    text: "Удалить";
-                    destructive: true;
-                    clicked => { root.remove(); }
+
+                // Строка 2: вспомогательные действия
+                HorizontalLayout {
+                    spacing: Theme.spacing-sm;
+                    alignment: end;
+                    GhostButton {
+                        width: 90px;
+                        text: data.enabled ? "Выключить" : "Включить";
+                        clicked => { root.toggle(); }
+                    }
+                    GhostButton {
+                        width: 100px;
+                        text: "Расписание";
+                        clicked => { root.schedule(); }
+                    }
+                    GhostButton {
+                        width: 80px;
+                        text: "Изменить";
+                        clicked => { root.edit(); }
+                    }
+                    GhostButton {
+                        width: 70px;
+                        text: "Удалить";
+                        destructive: true;
+                        clicked => { root.remove(); }
+                    }
                 }
             }
         }
@@ -132,6 +158,7 @@ export component JobsPage inherits Rectangle {
     callback run-job-now(string);
     callback edit-job(string);
     callback toggle-job(string);
+    callback open-schedule(string);
     callback delete-job(string);
 
     background: Theme.bg;
@@ -193,10 +220,11 @@ export component JobsPage inherits Rectangle {
                 spacing: Theme.spacing-sm;
                 for job[i] in jobs : JobCard {
                     data: job;
-                    run-now => { root.run-job-now(job.id); }
-                    edit    => { root.edit-job(job.id); }
-                    toggle  => { root.toggle-job(job.id); }
-                    remove  => { root.delete-job(job.id); }
+                    run-now  => { root.run-job-now(job.id); }
+                    edit     => { root.edit-job(job.id); }
+                    toggle   => { root.toggle-job(job.id); }
+                    schedule => { root.open-schedule(job.id); }
+                    remove   => { root.delete-job(job.id); }
                 }
                 Rectangle { height: Theme.spacing-md; }
             }
