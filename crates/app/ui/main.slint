@@ -1,0 +1,81 @@
+import { Palette } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Sidebar } from "widgets/sidebar.slint";
+import { Dashboard } from "pages/dashboard.slint";
+import { Placeholder } from "pages/placeholder.slint";
+
+export struct JobRow {
+    id: string,
+    name: string,
+    last-run: string,
+    status: string,   // "ok" | "error" | "running" | "idle"
+    progress: float,  // 0..1
+}
+
+export component AppWindow inherits Window {
+    title: "Backuper";
+    preferred-width: 1100px;
+    preferred-height: 720px;
+    min-width: 900px;
+    min-height: 560px;
+
+    in-out property <int> current-page: 0;
+    in-out property <[JobRow]> jobs: [];
+    in-out property <int> total-jobs: 0;
+    in-out property <int> ok-today: 0;
+    in-out property <int> failed-today: 0;
+    in-out property <string> next-run: "—";
+    in-out property <string> color-scheme: "system"; // "light" | "dark" | "system"
+
+    callback navigate(int);
+    callback run-job-now(string);
+    callback edit-job(string);
+    callback toggle-job(string);
+    callback delete-job(string);
+    callback open-logs(string);
+    callback theme-changed(string);
+
+    HorizontalLayout {
+        spacing: 0;
+
+        Sidebar {
+            selected: root.current-page;
+            select-page(p) => {
+                root.current-page = p;
+                root.navigate(p);
+            }
+        }
+
+        Rectangle {
+            background: Theme.bg;
+            horizontal-stretch: 1;
+
+            if root.current-page == 0 : Dashboard {
+                total-jobs: root.total-jobs;
+                ok-today: root.ok-today;
+                failed-today: root.failed-today;
+                next-run: root.next-run;
+            }
+            if root.current-page == 1 : Placeholder {
+                title: "Задания";
+                hint: "CRUD заданий, фильтры и «Выполнить сейчас» появятся на Stage 2.";
+            }
+            if root.current-page == 2 : Placeholder {
+                title: "Источники";
+                hint: "1С (файловые/серверные), папки, отдельные файлы — Stage 2.";
+            }
+            if root.current-page == 3 : Placeholder {
+                title: "Хранилища";
+                hint: "Локальный диск + UNC сейчас, Яндекс.Диск/GDrive — Stage 4.";
+            }
+            if root.current-page == 4 : Placeholder {
+                title: "Журнал";
+                hint: "Просмотр логов с фильтрами и экспортом — Stage 2.";
+            }
+            if root.current-page == 5 : Placeholder {
+                title: "Настройки";
+                hint: "Темы, автозапуск, язык, обновления — Stage 6.";
+            }
+        }
+    }
+}

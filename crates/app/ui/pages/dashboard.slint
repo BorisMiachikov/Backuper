@@ -1,0 +1,51 @@
+import { Theme } from "../theme.slint";
+import { Card, StatTile } from "../widgets/card.slint";
+
+export component Dashboard inherits Rectangle {
+    in property <int> total-jobs: 0;
+    in property <int> ok-today: 0;
+    in property <int> failed-today: 0;
+    in property <string> next-run: "—";
+
+    background: Theme.bg;
+
+    VerticalLayout {
+        padding: Theme.spacing-xl;
+        spacing: Theme.spacing-lg;
+
+        Text {
+            text: "Обзор";
+            font-size: 22px;
+            font-weight: 700;
+            color: Theme.fg;
+        }
+
+        HorizontalLayout {
+            spacing: Theme.spacing-md;
+            StatTile { label: "Активных заданий"; value: root.total-jobs; }
+            StatTile { label: "Успешно за сегодня"; value: root.ok-today; accent: Theme.success; }
+            StatTile { label: "Ошибок за сегодня"; value: root.failed-today; accent: Theme.danger; }
+            StatTile { label: "Следующий запуск"; value: root.next-run; }
+        }
+
+        Card {
+            VerticalLayout {
+                padding: Theme.spacing-lg;
+                spacing: Theme.spacing-sm;
+                Text {
+                    text: "Последние запуски";
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: Theme.fg;
+                }
+                Text {
+                    text: "Stage 0 — список появится после интеграции БД (Stage 1).";
+                    font-size: 13px;
+                    color: Theme.fg-muted;
+                }
+            }
+        }
+
+        Rectangle { vertical-stretch: 1; }
+    }
+}

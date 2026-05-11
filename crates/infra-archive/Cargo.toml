@@ -1,0 +1,30 @@
+[package]
+name = "infra-archive"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+must_use_candidate = "allow"
+
+[dependencies]
+domain = { workspace = true }
+shared = { workspace = true }
+
+tokio = { workspace = true }
+async-trait = { workspace = true }
+zip = { workspace = true }
+async-compression = { workspace = true }
+tar = { workspace = true }
+sha2 = { workspace = true }
+walkdir = { workspace = true }
+globset = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }

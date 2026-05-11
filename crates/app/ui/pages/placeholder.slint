@@ -1,0 +1,25 @@
+import { Theme } from "../theme.slint";
+
+export component Placeholder inherits Rectangle {
+    in property <string> title;
+    in property <string> hint: "Появится на следующих этапах разработки.";
+
+    background: Theme.bg;
+
+    VerticalLayout {
+        padding: Theme.spacing-xl;
+        spacing: Theme.spacing-lg;
+        Text {
+            text: root.title;
+            font-size: 22px;
+            font-weight: 700;
+            color: Theme.fg;
+        }
+        Text {
+            text: root.hint;
+            font-size: 14px;
+            color: Theme.fg-muted;
+        }
+        Rectangle { vertical-stretch: 1; }
+    }
+}

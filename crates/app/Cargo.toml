@@ -1,0 +1,57 @@
+[package]
+name = "app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+build = "build.rs"
+default-run = "backuper"
+
+[[bin]]
+name = "backuper"
+path = "src/main.rs"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+must_use_candidate = "allow"
+
+[dependencies]
+domain = { workspace = true }
+application = { workspace = true }
+shared = { workspace = true }
+infra-storage-sqlite = { workspace = true }
+infra-secrets = { workspace = true }
+infra-archive = { workspace = true }
+infra-1c = { workspace = true }
+infra-fs = { workspace = true }
+infra-cloud-yadisk = { workspace = true }
+infra-cloud-gdrive = { workspace = true }
+
+slint = { workspace = true }
+
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+once_cell = { workspace = true }
+
+tray-icon = { workspace = true }
+notify-rust = { workspace = true }
+auto-launch = { workspace = true }
+single-instance = { workspace = true }
+rfd = { workspace = true }
+open = { workspace = true }
+self_update = { workspace = true }
+ed25519-dalek = { workspace = true }
+arboard = { workspace = true }
+unic-langid = { workspace = true }
+
+[build-dependencies]
+slint-build = { workspace = true }

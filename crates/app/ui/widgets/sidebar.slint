@@ -1,0 +1,134 @@
+import { Palette } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+
+export struct NavItem {
+    label: string,
+    icon: string,    // unicode-символ (placeholder вместо SVG)
+    badge: string,
+}
+
+component NavRow inherits Rectangle {
+    in property <NavItem> item;
+    in property <bool> selected;
+    callback clicked;
+
+    height: 40px;
+    border-radius: Theme.radius-sm;
+    background: selected ? Theme.accent : (ta.has-hover ? Theme.bg-elevated : transparent);
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.spacing-md;
+        padding-right: Theme.spacing-md;
+        spacing: Theme.spacing-md;
+        alignment: start;
+
+        icon := Text {
+            text: item.icon;
+            color: selected ? white : Theme.fg-muted;
+            font-size: 16px;
+            vertical-alignment: center;
+            width: 22px;
+        }
+
+        Text {
+            text: item.label;
+            color: selected ? white : Theme.fg;
+            font-size: 14px;
+            font-weight: selected ? 600 : 400;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+
+        if item.badge != "" : Rectangle {
+            background: selected ? white.with-alpha(0.25) : Theme.bg-elevated;
+            border-radius: 8px;
+            min-width: 22px;
+            height: 18px;
+            Text {
+                text: item.badge;
+                font-size: 11px;
+                color: selected ? white : Theme.fg-muted;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+export component Sidebar inherits Rectangle {
+    in-out property <int> selected;
+    in property <[NavItem]> items: [
+        { label: "Dashboard", icon: "⌂", badge: "" },
+        { label: "Задания",   icon: "≡", badge: "" },
+        { label: "Источники", icon: "❐", badge: "" },
+        { label: "Хранилища", icon: "☁", badge: "" },
+        { label: "Журнал",    icon: "≣", badge: "" },
+        { label: "Настройки", icon: "⚙", badge: "" },
+    ];
+    callback select-page(int);
+
+    width: Theme.sidebar-width;
+    background: Theme.bg-elevated;
+
+    VerticalLayout {
+        padding: Theme.spacing-md;
+        spacing: Theme.spacing-xs;
+
+        // Логотип / заголовок приложения
+        Rectangle {
+            height: 56px;
+            HorizontalLayout {
+                alignment: start;
+                spacing: Theme.spacing-md;
+                padding-left: Theme.spacing-sm;
+
+                Text {
+                    text: "🛡";
+                    font-size: 24px;
+                    vertical-alignment: center;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Text {
+                        text: "Backuper";
+                        font-size: 16px;
+                        font-weight: 700;
+                        color: Theme.fg;
+                    }
+                    Text {
+                        text: "1С · Папки · Облака";
+                        font-size: 11px;
+                        color: Theme.fg-muted;
+                    }
+                }
+            }
+        }
+
+        // Разделитель
+        Rectangle { height: 1px; background: Theme.border; }
+
+        // Навигация
+        for item[i] in items : NavRow {
+            item: item;
+            selected: i == root.selected;
+            clicked => {
+                root.selected = i;
+                root.select-page(i);
+            }
+        }
+
+        Rectangle { vertical-stretch: 1; }
+
+        // Версия в подвале
+        Text {
+            text: "v0.1.0";
+            font-size: 11px;
+            color: Theme.fg-muted;
+            horizontal-alignment: center;
+        }
+    }
+}

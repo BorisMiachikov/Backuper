@@ -1,0 +1,28 @@
+[package]
+name = "infra-cloud-yadisk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+must_use_candidate = "allow"
+
+[dependencies]
+domain = { workspace = true }
+shared = { workspace = true }
+
+tokio = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+oauth2 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+secrecy = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+time = { workspace = true }

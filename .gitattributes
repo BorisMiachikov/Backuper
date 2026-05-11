@@ -1,0 +1,32 @@
+# Default: detect text vs binary, normalize line endings to LF on commit.
+* text=auto eol=lf
+
+# Source code — always LF.
+*.rs       text eol=lf
+*.toml     text eol=lf
+*.slint    text eol=lf
+*.sql      text eol=lf
+*.md       text eol=lf
+*.json     text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+
+# Windows-only files — CRLF.
+*.bat      text eol=crlf
+*.cmd      text eol=crlf
+*.ps1      text eol=crlf
+
+# Binary assets.
+*.png      binary
+*.jpg      binary
+*.ico      binary
+*.icns     binary
+*.pdf      binary
+*.zip      binary
+*.7z       binary
+*.exe      binary
+*.dll      binary
+*.msi      binary
+
+# GitHub linguist hints — Slint UI shouldn't dominate language stats.
+*.slint linguist-detectable=true linguist-language=Slint

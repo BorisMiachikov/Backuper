@@ -1,0 +1,40 @@
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+
+# Build artifacts
+*.pdb
+*.exp
+*.lib
+
+# Local SQLite
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+/logs
+
+# Installer
+/installer/output
+
+# Secrets (никогда не коммитим)
+vault.key
+*.pem
+*.pfx
+*.p12
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Backups produced locally
+/backups

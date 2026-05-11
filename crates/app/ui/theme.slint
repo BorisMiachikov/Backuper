@@ -1,0 +1,27 @@
+import { Palette } from "std-widgets.slint";
+
+export global Theme {
+    // Семантические цвета поверх системной палитры. Меняется атомарно при
+    // переключении dark/light через Palette.color-scheme.
+    out property <color> bg: Palette.background;
+    out property <color> bg-elevated: Palette.alternate-background;
+    out property <color> fg: Palette.foreground;
+    out property <color> fg-muted: Palette.control-foreground;
+    out property <color> accent: Palette.accent-background;
+    out property <color> border: Palette.border;
+    out property <color> success: #16a34a;
+    out property <color> warning: #f59e0b;
+    out property <color> danger: #ef4444;
+    out property <color> running: Palette.accent-background;
+
+    out property <length> spacing-xs: 4px;
+    out property <length> spacing-sm: 8px;
+    out property <length> spacing-md: 12px;
+    out property <length> spacing-lg: 16px;
+    out property <length> spacing-xl: 24px;
+
+    out property <length> radius-sm: 6px;
+    out property <length> radius-md: 10px;
+
+    out property <length> sidebar-width: 240px;
+}
