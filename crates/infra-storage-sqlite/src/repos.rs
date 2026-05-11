@@ -14,7 +14,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::mappers::{job_run, source_kind};
+use crate::mappers::{job_run, schedule_kind, source_kind};
 
 fn map_sqlx_err(e: sqlx::Error) -> DomainError {
     DomainError::Repository(e.to_string())
@@ -295,12 +295,44 @@ impl JobRepository for SqliteJobRepository {
     }
 
     async fn list_schedules(&self) -> DomainResult<Vec<Schedule>> {
-        // Stage 1.3 — добавим, когда дойдём до cron-логики.
-        Ok(Vec::new())
+        let rows = sqlx::query(
+            "SELECT id, job_id, kind, cron_expr, run_at, next_fire, enabled FROM schedules",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_err)?;
+        rows.iter().map(row_to_schedule).collect()
     }
 
-    async fn upsert_schedule(&self, _schedule: &Schedule) -> DomainResult<()> {
-        Err(DomainError::Repository("schedules.upsert: stage 1.3".into()))
+    async fn upsert_schedule(&self, schedule: &Schedule) -> DomainResult<()> {
+        let cols = schedule_kind::split(&schedule.kind);
+        let next_fire = schedule
+            .next_fire
+            .map(|t| t.format(&Rfc3339))
+            .transpose()
+            .map_err(|e| DomainError::Repository(format!("format next_fire: {e}")))?;
+        sqlx::query(
+            "INSERT INTO schedules (id, job_id, kind, cron_expr, run_at, next_fire, enabled)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(id) DO UPDATE SET
+                job_id    = excluded.job_id,
+                kind      = excluded.kind,
+                cron_expr = excluded.cron_expr,
+                run_at    = excluded.run_at,
+                next_fire = excluded.next_fire,
+                enabled   = excluded.enabled",
+        )
+        .bind(schedule.id.to_string())
+        .bind(schedule.job_id.to_string())
+        .bind(&cols.kind)
+        .bind(cols.cron_expr)
+        .bind(cols.run_at)
+        .bind(next_fire)
+        .bind(i64::from(schedule.enabled))
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_err)?;
+        Ok(())
     }
 
     async fn insert_run(&self, run: &JobRun) -> DomainResult<()> {
@@ -432,6 +464,30 @@ fn row_to_job(row: &sqlx::sqlite::SqliteRow) -> DomainResult<Job> {
         targets: Vec::new(),
         created_at: parse_rfc3339(&created_s)?,
         updated_at: parse_rfc3339(&updated_s)?,
+    })
+}
+
+fn row_to_schedule(row: &sqlx::sqlite::SqliteRow) -> DomainResult<Schedule> {
+    let id_s: String = row.try_get("id").map_err(map_sqlx_err)?;
+    let job_id_s: String = row.try_get("job_id").map_err(map_sqlx_err)?;
+    let kind_s: String = row.try_get("kind").map_err(map_sqlx_err)?;
+    let cron_expr: Option<String> = row.try_get("cron_expr").map_err(map_sqlx_err)?;
+    let run_at: Option<String> = row.try_get("run_at").map_err(map_sqlx_err)?;
+    let next_fire_s: Option<String> = row.try_get("next_fire").map_err(map_sqlx_err)?;
+    let enabled_i: i64 = row.try_get("enabled").map_err(map_sqlx_err)?;
+
+    let kind = schedule_kind::assemble(&kind_s, cron_expr.as_deref(), run_at.as_deref())
+        .map_err(|e| DomainError::Repository(format!("assemble schedule: {e}")))?;
+    let next_fire = next_fire_s.as_deref().map(parse_rfc3339).transpose()?;
+
+    Ok(Schedule {
+        id: Uuid::parse_str(&id_s)
+            .map_err(|e| DomainError::Repository(format!("parse schedule uuid: {e}")))?,
+        job_id: Uuid::parse_str(&job_id_s)
+            .map_err(|e| DomainError::Repository(format!("parse job uuid: {e}")))?,
+        kind,
+        enabled: enabled_i != 0,
+        next_fire,
     })
 }
 
