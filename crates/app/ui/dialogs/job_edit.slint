@@ -4,6 +4,7 @@ import { PrimaryButton, GhostButton } from "../widgets/button.slint";
 
 export component JobEditDialog inherits Rectangle {
     in-out property <bool> open: false;
+    in-out property <string> dialog-id: "";      // "" = новое, uuid = редактирование
     in-out property <string> name-value;
     in-out property <string> source-value;       // имя источника, выбранное в ComboBox
     in-out property <bool>   enabled-value: true;
@@ -34,7 +35,7 @@ export component JobEditDialog inherits Rectangle {
             spacing: Theme.spacing-md;
 
             Text {
-                text: "Новое задание";
+                text: root.dialog-id == "" ? "Новое задание" : "Редактировать задание";
                 font-size: 18px;
                 font-weight: 700;
                 color: Theme.fg;

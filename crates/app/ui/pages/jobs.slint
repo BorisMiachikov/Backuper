@@ -18,6 +18,7 @@ component JobCard inherits Rectangle {
     in property <JobRow> data;
     callback run-now;
     callback edit;
+    callback toggle;
     callback remove;
 
     // Вычисляем цвет статуса один раз — Slint не разрешает top-level функции.
@@ -90,6 +91,16 @@ component JobCard inherits Rectangle {
                     clicked => { root.run-now(); }
                 }
                 GhostButton {
+                    width: 90px;
+                    text: data.enabled ? "Выключить" : "Включить";
+                    clicked => { root.toggle(); }
+                }
+                GhostButton {
+                    width: 90px;
+                    text: "Изменить";
+                    clicked => { root.edit(); }
+                }
+                GhostButton {
                     width: 80px;
                     text: "Удалить";
                     destructive: true;
@@ -120,6 +131,7 @@ export component JobsPage inherits Rectangle {
     callback add-job();
     callback run-job-now(string);
     callback edit-job(string);
+    callback toggle-job(string);
     callback delete-job(string);
 
     background: Theme.bg;
@@ -183,6 +195,7 @@ export component JobsPage inherits Rectangle {
                     data: job;
                     run-now => { root.run-job-now(job.id); }
                     edit    => { root.edit-job(job.id); }
+                    toggle  => { root.toggle-job(job.id); }
                     remove  => { root.delete-job(job.id); }
                 }
                 Rectangle { height: Theme.spacing-md; }

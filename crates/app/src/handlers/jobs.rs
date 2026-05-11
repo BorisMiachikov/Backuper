@@ -33,6 +33,7 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(w) = weak2.upgrade() {
                         w.set_job_dialog_sources(ModelRc::from(Rc::new(VecModel::from(names))));
+                        w.set_job_dialog_id(SharedString::new());
                         w.set_job_dialog_name(SharedString::new());
                         w.set_job_dialog_source(first);
                         w.set_job_dialog_enabled(true);
@@ -54,34 +55,54 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
             let name = w.get_job_dialog_name().to_string();
             let source_name = w.get_job_dialog_source().to_string();
             let enabled = w.get_job_dialog_enabled();
+            let editing_id = w.get_job_dialog_id().to_string();
             if name.trim().is_empty() || source_name.trim().is_empty() {
                 return;
             }
             let ctx = ctx.clone();
             let weak = weak.clone();
             tokio::spawn(async move {
-                // Резолвим имя источника → uuid (имена не гарантированно уникальны,
-                // на Stage 1.3 заменим на (id, name)-пары).
                 let sources = ctx.sources.list().await.unwrap_or_default();
                 let Some(src) = sources.iter().find(|s| s.name == source_name) else {
                     warn!(source_name, "save_job: source not found");
                     return;
                 };
                 let now = OffsetDateTime::now_utc();
-                let job = Job {
-                    id: uuid::Uuid::now_v7(),
-                    source_id: src.id,
-                    name,
-                    enabled,
-                    archive: ArchiveConfig::default(),
-                    retention: RetentionPolicy::default(),
-                    exclude: ExcludeRules::default(),
-                    pre_cmd: None,
-                    post_cmd: None,
-                    priority: 0,
-                    targets: Vec::new(),
-                    created_at: now,
-                    updated_at: now,
+                let job = if editing_id.is_empty() {
+                    Job {
+                        id: uuid::Uuid::now_v7(),
+                        source_id: src.id,
+                        name,
+                        enabled,
+                        archive: ArchiveConfig::default(),
+                        retention: RetentionPolicy::default(),
+                        exclude: ExcludeRules::default(),
+                        pre_cmd: None,
+                        post_cmd: None,
+                        priority: 0,
+                        targets: Vec::new(),
+                        created_at: now,
+                        updated_at: now,
+                    }
+                } else {
+                    let Ok(edit_uuid) = uuid::Uuid::parse_str(&editing_id) else {
+                        warn!(editing_id, "save_job: invalid uuid");
+                        return;
+                    };
+                    match ctx.jobs.get(edit_uuid).await {
+                        Ok(Some(existing)) => Job {
+                            id: existing.id,
+                            source_id: src.id,
+                            name,
+                            enabled,
+                            updated_at: now,
+                            ..existing
+                        },
+                        _ => {
+                            warn!(%edit_uuid, "save_job edit: job not found");
+                            return;
+                        }
+                    }
                 };
                 match commands::jobs::upsert(&ctx, &job).await {
                     Ok(()) => {
@@ -90,6 +111,7 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
                         let ctx2 = ctx.clone();
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(w) = weak.upgrade() {
+                                w.set_job_dialog_id(SharedString::new());
                                 w.set_job_dialog_open(false);
                                 refresh_from_event_loop(&w, ctx2);
                             }
@@ -105,6 +127,7 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
         let weak = window.as_weak();
         window.on_cancel_job_dialog(move || {
             if let Some(w) = weak.upgrade() {
+                w.set_job_dialog_id(SharedString::new());
                 w.set_job_dialog_open(false);
             }
         });
@@ -154,8 +177,78 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
         });
     }
 
-    window.on_edit_job(|id| info!(?id, "edit_job: TODO (Stage 1.3)"));
-    window.on_toggle_job(|id| info!(?id, "toggle_job: TODO (Stage 1.3)"));
+    // ── Edit job ──────────────────────────────────────────────────
+    {
+        let ctx = ctx.clone();
+        let weak = window.as_weak();
+        window.on_edit_job(move |id: SharedString| {
+            let Ok(uuid) = uuid::Uuid::parse_str(id.as_str()) else {
+                warn!(%id, "edit_job: invalid uuid");
+                return;
+            };
+            let ctx = ctx.clone();
+            let weak = weak.clone();
+            tokio::spawn(async move {
+                let Ok(Some(job)) = ctx.jobs.get(uuid).await else {
+                    warn!(%uuid, "edit_job: not found");
+                    return;
+                };
+                let sources = ctx.sources.list().await.unwrap_or_default();
+                let source_name = sources
+                    .iter()
+                    .find(|s| s.id == job.source_id)
+                    .map(|s| SharedString::from(s.name.as_str()))
+                    .unwrap_or_default();
+                let names: Vec<SharedString> =
+                    sources.iter().map(|s| SharedString::from(s.name.as_str())).collect();
+                let job_id_str = SharedString::from(job.id.to_string());
+                let job_name = SharedString::from(job.name.as_str());
+                let job_enabled = job.enabled;
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(w) = weak.upgrade() {
+                        w.set_job_dialog_sources(ModelRc::from(Rc::new(VecModel::from(names))));
+                        w.set_job_dialog_id(job_id_str);
+                        w.set_job_dialog_name(job_name);
+                        w.set_job_dialog_source(source_name);
+                        w.set_job_dialog_enabled(job_enabled);
+                        w.set_job_dialog_open(true);
+                    }
+                });
+            });
+        });
+    }
+
+    // ── Toggle job enabled ────────────────────────────────────────
+    {
+        let ctx = ctx.clone();
+        let weak = window.as_weak();
+        window.on_toggle_job(move |id: SharedString| {
+            let Ok(uuid) = uuid::Uuid::parse_str(id.as_str()) else {
+                warn!(%id, "toggle_job: invalid uuid");
+                return;
+            };
+            let ctx = ctx.clone();
+            let weak = weak.clone();
+            tokio::spawn(async move {
+                let Ok(Some(mut job)) = ctx.jobs.get(uuid).await else {
+                    warn!(%uuid, "toggle_job: not found");
+                    return;
+                };
+                job.enabled = !job.enabled;
+                job.updated_at = OffsetDateTime::now_utc();
+                if let Err(e) = commands::jobs::upsert(&ctx, &job).await {
+                    warn!(error = %e, "toggle_job failed");
+                    return;
+                }
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(w) = weak.upgrade() {
+                        refresh_from_event_loop(&w, ctx);
+                    }
+                });
+            });
+        });
+    }
+
     window.on_open_logs(|id| info!(?id, "open_logs: TODO (Stage 2)"));
 
     // ── Подписка на DomainEvent → перерисовка модели ──────────────
