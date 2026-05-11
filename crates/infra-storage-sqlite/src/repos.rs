@@ -301,7 +301,8 @@ impl JobRepository for SqliteJobRepository {
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx_err)?;
-        rows.iter().map(row_to_schedule).collect()
+        // Пропускаем строки с неизвестным форматом (напр. оставшиеся от старых версий).
+        Ok(rows.iter().filter_map(|row| row_to_schedule(row).ok()).collect())
     }
 
     async fn upsert_schedule(&self, schedule: &Schedule) -> DomainResult<()> {
