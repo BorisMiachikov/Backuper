@@ -1,0 +1,168 @@
+import { ComboBox, LineEdit, SpinBox } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { PrimaryButton, GhostButton } from "../widgets/button.slint";
+
+// kind-value: "none" | "every_minutes" | "daily" | "weekly" | "cron"
+export component ScheduleEditDialog inherits Rectangle {
+    in-out property <bool>   open: false;
+    in-out property <string> job-name: "";          // только для заголовка
+    in-out property <string> kind-value: "none";
+    in-out property <int>    every-minutes: 60;
+    in-out property <int>    daily-hour: 2;
+    in-out property <int>    daily-minute: 0;
+    in-out property <int>    weekly-weekday: 1;     // 0=Вс..6=Сб
+    in-out property <int>    weekly-hour: 2;
+    in-out property <int>    weekly-minute: 0;
+    in-out property <string> cron-expr: "0 2 * * *";
+
+    callback save();
+    callback cancel();
+
+    visible: root.open;
+    width: 100%;
+    height: 100%;
+    background: #00000088;
+
+    TouchArea {}
+
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(parent.width - 64px, 480px);
+        height: 380px;
+        background: Theme.bg-elevated;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.border;
+
+        VerticalLayout {
+            padding: Theme.spacing-xl;
+            spacing: Theme.spacing-md;
+
+            Text {
+                text: "Расписание: " + root.job-name;
+                font-size: 18px;
+                font-weight: 700;
+                color: Theme.fg;
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Тип запуска"; font-size: 12px; color: Theme.fg-muted; }
+                ComboBox {
+                    model: ["Отключено", "Каждые N минут", "Ежедневно", "Еженедельно", "Cron-выражение"];
+                    current-index: root.kind-value == "every_minutes" ? 1
+                                 : root.kind-value == "daily"         ? 2
+                                 : root.kind-value == "weekly"        ? 3
+                                 : root.kind-value == "cron"          ? 4
+                                 :                                       0;
+                    selected(val) => {
+                        root.kind-value =
+                            val == "Каждые N минут"   ? "every_minutes"
+                          : val == "Ежедневно"         ? "daily"
+                          : val == "Еженедельно"       ? "weekly"
+                          : val == "Cron-выражение"    ? "cron"
+                          :                              "none";
+                    }
+                }
+            }
+
+            // ── Каждые N минут ──────────────────────────────────────
+            if root.kind-value == "every_minutes" : HorizontalLayout {
+                spacing: Theme.spacing-sm;
+                alignment: start;
+                Text { text: "Каждые"; font-size: 13px; color: Theme.fg; vertical-alignment: center; }
+                SpinBox {
+                    width: 100px;
+                    value <=> root.every-minutes;
+                    minimum: 1;
+                    maximum: 1440;
+                }
+                Text { text: "минут"; font-size: 13px; color: Theme.fg; vertical-alignment: center; }
+            }
+
+            // ── Ежедневно ───────────────────────────────────────────
+            if root.kind-value == "daily" : HorizontalLayout {
+                spacing: Theme.spacing-sm;
+                alignment: start;
+                Text { text: "В"; font-size: 13px; color: Theme.fg; vertical-alignment: center; }
+                SpinBox {
+                    width: 80px;
+                    value <=> root.daily-hour;
+                    minimum: 0;
+                    maximum: 23;
+                }
+                Text { text: ":"; font-size: 13px; color: Theme.fg; vertical-alignment: center; }
+                SpinBox {
+                    width: 80px;
+                    value <=> root.daily-minute;
+                    minimum: 0;
+                    maximum: 59;
+                }
+                Text { text: "UTC"; font-size: 12px; color: Theme.fg-muted; vertical-alignment: center; }
+            }
+
+            // ── Еженедельно ─────────────────────────────────────────
+            if root.kind-value == "weekly" : VerticalLayout {
+                spacing: Theme.spacing-sm;
+                HorizontalLayout {
+                    spacing: Theme.spacing-sm;
+                    alignment: start;
+                    Text { text: "День недели (0=Вс..6=Сб):"; font-size: 13px; color: Theme.fg; vertical-alignment: center; }
+                    SpinBox {
+                        width: 80px;
+                        value <=> root.weekly-weekday;
+                        minimum: 0;
+                        maximum: 6;
+                    }
+                }
+                HorizontalLayout {
+                    spacing: Theme.spacing-sm;
+                    alignment: start;
+                    Text { text: "В"; font-size: 13px; color: Theme.fg; vertical-alignment: center; }
+                    SpinBox {
+                        width: 80px;
+                        value <=> root.weekly-hour;
+                        minimum: 0;
+                        maximum: 23;
+                    }
+                    Text { text: ":"; font-size: 13px; color: Theme.fg; vertical-alignment: center; }
+                    SpinBox {
+                        width: 80px;
+                        value <=> root.weekly-minute;
+                        minimum: 0;
+                        maximum: 59;
+                    }
+                    Text { text: "UTC"; font-size: 12px; color: Theme.fg-muted; vertical-alignment: center; }
+                }
+            }
+
+            // ── Cron-выражение ──────────────────────────────────────
+            if root.kind-value == "cron" : VerticalLayout {
+                spacing: 4px;
+                Text { text: "Выражение (сек мин час д.м. мес д.н.)"; font-size: 12px; color: Theme.fg-muted; }
+                LineEdit {
+                    text <=> root.cron-expr;
+                    placeholder-text: "0 0 2 * * *";
+                }
+            }
+
+            Rectangle { vertical-stretch: 1; }
+
+            HorizontalLayout {
+                alignment: end;
+                spacing: Theme.spacing-sm;
+                GhostButton {
+                    width: 90px;
+                    text: "Отмена";
+                    clicked => { root.cancel(); }
+                }
+                PrimaryButton {
+                    width: 120px;
+                    text: "Сохранить";
+                    clicked => { root.save(); }
+                }
+            }
+        }
+    }
+}

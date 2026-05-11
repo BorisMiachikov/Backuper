@@ -22,6 +22,15 @@ pub fn kind_label(kind: &SourceKind) -> &'static str {
     }
 }
 
+pub fn kind_to_combo(kind: &SourceKind) -> &'static str {
+    match kind {
+        SourceKind::OneCFile => "one_c_file",
+        SourceKind::OneCServer { .. } => "one_c_server",
+        SourceKind::Files { .. } => "files",
+        SourceKind::Folder => "folder",
+    }
+}
+
 pub fn kind_from_combo(value: &str) -> SourceKind {
     match value {
         "one_c_file" => SourceKind::OneCFile,

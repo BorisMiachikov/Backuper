@@ -4,6 +4,7 @@ import { PrimaryButton, GhostButton } from "../widgets/button.slint";
 
 export component SourceEditDialog inherits Rectangle {
     in-out property <bool> open: false;
+    in-out property <string> dialog-id: "";    // "" = новый, uuid = редактирование
     in-out property <string> name-value;
     in-out property <string> path-value;
     in-out property <string> description-value;
@@ -37,7 +38,7 @@ export component SourceEditDialog inherits Rectangle {
             spacing: Theme.spacing-md;
 
             Text {
-                text: "Новый источник";
+                text: root.dialog-id == "" ? "Новый источник" : "Редактировать источник";
                 font-size: 18px;
                 font-weight: 700;
                 color: Theme.fg;

@@ -4,12 +4,15 @@ mod queue;
 mod retry;
 mod worker;
 
+use std::str::FromStr;
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use domain::JobTrigger;
+use domain::{JobTrigger, ScheduleKind};
+use time::OffsetDateTime;
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::context::AppContext;
@@ -68,7 +71,67 @@ impl Scheduler {
     }
 
     async fn poll_schedules(&self) {
-        // Stage 0: пока заглушка. Real impl читает schedules.next_fire <= now.
-        // Будет реализовано на Stage 1 (Foundation).
+        let now = OffsetDateTime::now_utc();
+        let schedules = match self.ctx.jobs.list_schedules().await {
+            Ok(s) => s,
+            Err(e) => { warn!(error = %e, "poll_schedules: list failed"); return; }
+        };
+
+        for mut sched in schedules {
+            if sched.next_fire.is_none() {
+                // Первый запуск — вычислить и сохранить next_fire.
+                sched.next_fire = next_fire_after(&sched.kind, now);
+                let _ = self.ctx.jobs.upsert_schedule(&sched).await;
+                continue;
+            }
+            let fire = sched.next_fire.unwrap();
+            if fire > now {
+                continue; // ещё не пора
+            }
+            // Время пришло — ставим в очередь.
+            self.queue.push(JobTrigger::scheduled(sched.job_id)).await;
+            // Вычисляем следующий запуск.
+            sched.next_fire = next_fire_after(&sched.kind, now);
+            if let Err(e) = self.ctx.jobs.upsert_schedule(&sched).await {
+                warn!(error = %e, schedule_id = %sched.id, "poll_schedules: update next_fire failed");
+            }
+        }
+    }
+}
+
+fn next_fire_after(kind: &ScheduleKind, after: OffsetDateTime) -> Option<OffsetDateTime> {
+    match kind {
+        ScheduleKind::EveryMinutes { minutes } => {
+            Some(after + time::Duration::minutes(i64::from(*minutes)))
+        }
+        ScheduleKind::Daily { hour, minute } => {
+            let t = time::Time::from_hms(*hour, *minute, 0).ok()?;
+            let today_at = after.replace_time(t);
+            if today_at > after {
+                Some(today_at)
+            } else {
+                Some(today_at + time::Duration::days(1))
+            }
+        }
+        ScheduleKind::Weekly { weekday, hour, minute } => {
+            let t = time::Time::from_hms(*hour, *minute, 0).ok()?;
+            let target_wd = *weekday as i64; // 0=Sun..6=Sat
+            let current_wd = after.weekday().number_days_from_sunday() as i64;
+            let mut days_ahead = (target_wd - current_wd).rem_euclid(7);
+            let candidate = after.replace_time(t) + time::Duration::days(days_ahead);
+            if candidate <= after {
+                days_ahead += 7;
+            }
+            Some(after.replace_time(t) + time::Duration::days(days_ahead))
+        }
+        ScheduleKind::Cron { expression } => {
+            let sched = cron::Schedule::from_str(expression).ok()?;
+            let after_chrono = chrono::DateTime::<chrono::Utc>::from_timestamp(
+                after.unix_timestamp(),
+                after.nanosecond(),
+            )?;
+            let next_chrono = sched.after(&after_chrono).next()?;
+            OffsetDateTime::from_unix_timestamp(next_chrono.timestamp()).ok()
+        }
     }
 }

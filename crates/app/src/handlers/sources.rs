@@ -5,10 +5,11 @@ use std::sync::Arc;
 use application::commands;
 use application::AppContext;
 use domain::Source;
+use time::OffsetDateTime;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel, Weak};
 use tracing::{info, warn};
 
-use crate::bindings::sources::{kind_from_combo, parse_tags, source_to_row};
+use crate::bindings::sources::{kind_from_combo, kind_to_combo, parse_tags, source_to_row};
 use crate::AppWindow;
 
 pub fn wire(window: &AppWindow, ctx: Arc<AppContext>) {
@@ -20,6 +21,7 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>) {
         let weak = window.as_weak();
         window.on_add_source(move || {
             let Some(w) = weak.upgrade() else { return };
+            w.set_src_dialog_id(SharedString::new());
             w.set_src_dialog_name(SharedString::new());
             w.set_src_dialog_path(SharedString::new());
             w.set_src_dialog_description(SharedString::new());
@@ -29,8 +31,42 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>) {
         });
     }
 
-    // Редактирование пока не реализовано — Stage 1.5.
-    window.on_edit_source(|id| info!(?id, "edit_source: not yet implemented"));
+    // Редактирование — открыть диалог с заполненными полями.
+    {
+        let ctx = ctx.clone();
+        let weak = window.as_weak();
+        window.on_edit_source(move |id: SharedString| {
+            let Ok(uuid) = uuid::Uuid::parse_str(id.as_str()) else {
+                warn!(%id, "edit_source: invalid uuid");
+                return;
+            };
+            let ctx = ctx.clone();
+            let weak = weak.clone();
+            tokio::spawn(async move {
+                let Ok(Some(src)) = ctx.sources.get(uuid).await else {
+                    warn!(%uuid, "edit_source: not found");
+                    return;
+                };
+                let src_id   = SharedString::from(src.id.to_string());
+                let name     = SharedString::from(src.name.as_str());
+                let path     = SharedString::from(src.path.to_string_lossy().as_ref());
+                let desc     = SharedString::from(src.description.clone().unwrap_or_default());
+                let tags     = SharedString::from(src.tags.join(", "));
+                let kind     = SharedString::from(kind_to_combo(&src.kind));
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(w) = weak.upgrade() {
+                        w.set_src_dialog_id(src_id);
+                        w.set_src_dialog_name(name);
+                        w.set_src_dialog_path(path);
+                        w.set_src_dialog_description(desc);
+                        w.set_src_dialog_tags(tags);
+                        w.set_src_dialog_kind(kind);
+                        w.set_src_dialog_open(true);
+                    }
+                });
+            });
+        });
+    }
 
     // Удаление.
     {
@@ -74,11 +110,12 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>) {
         });
     }
 
-    // Cancel — закрыть.
+    // Cancel — закрыть и сбросить id.
     {
         let weak = window.as_weak();
         window.on_cancel_source_dialog(move || {
             if let Some(w) = weak.upgrade() {
+                w.set_src_dialog_id(SharedString::new());
                 w.set_src_dialog_open(false);
             }
         });
@@ -98,18 +135,43 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>) {
             let description = w.get_src_dialog_description().to_string();
             let tags = parse_tags(w.get_src_dialog_tags().as_str());
             let kind = kind_from_combo(w.get_src_dialog_kind().as_str());
-
-            let mut src = Source::new(kind, name, PathBuf::from(path));
-            src.description = if description.trim().is_empty() {
-                None
-            } else {
-                Some(description)
-            };
-            src.tags = tags;
+            let editing_id = w.get_src_dialog_id().to_string();
 
             let ctx = ctx.clone();
             let weak = weak.clone();
             tokio::spawn(async move {
+                let description = if description.trim().is_empty() { None } else { Some(description) };
+                let now = OffsetDateTime::now_utc();
+
+                let src = if editing_id.is_empty() {
+                    let mut s = Source::new(kind, name, PathBuf::from(path));
+                    s.description = description;
+                    s.tags = tags;
+                    s
+                } else {
+                    let Ok(edit_uuid) = uuid::Uuid::parse_str(&editing_id) else {
+                        warn!(editing_id, "save_source: invalid uuid");
+                        return;
+                    };
+                    match ctx.sources.get(edit_uuid).await {
+                        Ok(Some(existing)) => Source {
+                            id: existing.id,
+                            created_at: existing.created_at,
+                            updated_at: now,
+                            kind,
+                            name,
+                            path: PathBuf::from(path),
+                            description,
+                            tags,
+                            enabled: existing.enabled,
+                        },
+                        _ => {
+                            warn!(%edit_uuid, "save_source edit: not found");
+                            return;
+                        }
+                    }
+                };
+
                 match commands::sources::upsert(&ctx, &src).await {
                     Ok(()) => {
                         info!(source_id = %src.id, name = %src.name, "source saved");
@@ -117,6 +179,7 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>) {
                         let weak = weak.clone();
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(w) = weak.upgrade() {
+                                w.set_src_dialog_id(SharedString::new());
                                 w.set_src_dialog_open(false);
                                 refresh_from_event_loop(&w, ctx2);
                             }

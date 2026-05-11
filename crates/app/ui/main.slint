@@ -1,13 +1,14 @@
 import { Theme } from "theme.slint";
 import { Sidebar } from "widgets/sidebar.slint";
-import { Dashboard } from "pages/dashboard.slint";
+import { Dashboard, RunRow } from "pages/dashboard.slint";
 import { Placeholder } from "pages/placeholder.slint";
 import { SourcesPage, SourceRow } from "pages/sources.slint";
 import { JobsPage, JobRow } from "pages/jobs.slint";
 import { SourceEditDialog } from "dialogs/source_edit.slint";
 import { JobEditDialog } from "dialogs/job_edit.slint";
+import { ScheduleEditDialog } from "dialogs/schedule_edit.slint";
 
-export { SourceRow, JobRow }
+export { SourceRow, JobRow, RunRow }
 
 export component AppWindow inherits Window {
     title: "Backuper";
@@ -23,6 +24,7 @@ export component AppWindow inherits Window {
     in-out property <int> ok-today: 0;
     in-out property <int> failed-today: 0;
     in-out property <string> next-run: "—";
+    in-out property <[RunRow]> recent-runs: [];
 
     // ── Sources ──────────────────────────────────────────────────
     in-out property <[SourceRow]> sources: [];
@@ -40,6 +42,7 @@ export component AppWindow inherits Window {
     in-out property <string> src-dialog-description;
     in-out property <string> src-dialog-tags;
     in-out property <string> src-dialog-kind: "folder";
+    in-out property <string> src-dialog-id: "";    // "" = add, uuid = edit
 
     callback add-source();
     callback edit-source(string);
@@ -63,7 +66,23 @@ export component AppWindow inherits Window {
     callback cancel-job-dialog();
     callback run-job-now(string);
     callback toggle-job(string);
+    callback open-schedule(string);
+    callback save-schedule();
+    callback cancel-schedule-dialog();
     callback open-logs(string);
+
+    // ── Schedule dialog ──────────────────────────────────────────
+    in-out property <bool>   sched-dialog-open: false;
+    in-out property <string> sched-dialog-job-id: "";
+    in-out property <string> sched-dialog-job-name: "";
+    in-out property <string> sched-dialog-kind: "none";
+    in-out property <int>    sched-dialog-every-minutes: 60;
+    in-out property <int>    sched-dialog-daily-hour: 2;
+    in-out property <int>    sched-dialog-daily-minute: 0;
+    in-out property <int>    sched-dialog-weekly-weekday: 1;
+    in-out property <int>    sched-dialog-weekly-hour: 2;
+    in-out property <int>    sched-dialog-weekly-minute: 0;
+    in-out property <string> sched-dialog-cron-expr: "0 2 * * *";
 
     // ── Misc ─────────────────────────────────────────────────────
     callback navigate(int);
@@ -89,14 +108,16 @@ export component AppWindow inherits Window {
                 ok-today: root.ok-today;
                 failed-today: root.failed-today;
                 next-run: root.next-run;
+                recent-runs: root.recent-runs;
             }
             if root.current-page == 1 : JobsPage {
                 jobs: root.jobs;
-                add-job          => { root.add-job(); }
-                run-job-now(id)  => { root.run-job-now(id); }
-                edit-job(id)     => { root.edit-job(id); }
-                toggle-job(id)   => { root.toggle-job(id); }
-                delete-job(id)   => { root.delete-job(id); }
+                add-job            => { root.add-job(); }
+                run-job-now(id)    => { root.run-job-now(id); }
+                edit-job(id)       => { root.edit-job(id); }
+                toggle-job(id)     => { root.toggle-job(id); }
+                open-schedule(id)  => { root.open-schedule(id); }
+                delete-job(id)     => { root.delete-job(id); }
             }
             if root.current-page == 2 : SourcesPage {
                 sources: root.sources;
@@ -121,6 +142,7 @@ export component AppWindow inherits Window {
 
     SourceEditDialog {
         open <=> root.src-dialog-open;
+        dialog-id <=> root.src-dialog-id;
         name-value <=> root.src-dialog-name;
         path-value <=> root.src-dialog-path;
         description-value <=> root.src-dialog-description;
@@ -140,5 +162,20 @@ export component AppWindow inherits Window {
         source-options: root.job-dialog-sources;
         save   => { root.save-job(); }
         cancel => { root.cancel-job-dialog(); }
+    }
+
+    ScheduleEditDialog {
+        open               <=> root.sched-dialog-open;
+        job-name           <=> root.sched-dialog-job-name;
+        kind-value         <=> root.sched-dialog-kind;
+        every-minutes      <=> root.sched-dialog-every-minutes;
+        daily-hour         <=> root.sched-dialog-daily-hour;
+        daily-minute       <=> root.sched-dialog-daily-minute;
+        weekly-weekday     <=> root.sched-dialog-weekly-weekday;
+        weekly-hour        <=> root.sched-dialog-weekly-hour;
+        weekly-minute      <=> root.sched-dialog-weekly-minute;
+        cron-expr          <=> root.sched-dialog-cron-expr;
+        save   => { root.save-schedule(); }
+        cancel => { root.cancel-schedule-dialog(); }
     }
 }
