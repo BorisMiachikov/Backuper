@@ -66,6 +66,8 @@ export component AppWindow inherits Window {
     in-out property <string> job-dialog-source;
     in-out property <bool>   job-dialog-enabled: true;
     in-out property <[string]> job-dialog-sources: [];
+    in-out property <[string]> job-dialog-storages: [];
+    in-out property <string> job-dialog-storage: "";
     in-out property <string> job-dialog-id: "";    // "" = add, uuid = edit
 
     callback add-job();
@@ -191,6 +193,8 @@ export component AppWindow inherits Window {
         source-value <=> root.job-dialog-source;
         enabled-value <=> root.job-dialog-enabled;
         source-options: root.job-dialog-sources;
+        storage-options: root.job-dialog-storages;
+        storage-value <=> root.job-dialog-storage;
         save   => { root.save-job(); }
         cancel => { root.cancel-job-dialog(); }
     }

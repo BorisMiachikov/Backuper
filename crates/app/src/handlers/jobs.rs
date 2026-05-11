@@ -21,27 +21,30 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
         let weak = window.as_weak();
         window.on_add_job(move || {
             let Some(w) = weak.upgrade() else { return };
-            // Подгружаем актуальный список источников для ComboBox.
             let ctx = ctx.clone();
             let weak = weak.clone();
             tokio::spawn(async move {
                 let sources = ctx.sources.list().await.unwrap_or_default();
-                let names: Vec<SharedString> =
+                let storages = ctx.storages.list().await.unwrap_or_default();
+                let src_names: Vec<SharedString> =
                     sources.iter().map(|s| SharedString::from(s.name.as_str())).collect();
-                let first = names.first().cloned().unwrap_or_default();
-                let weak2 = weak.clone();
+                let mut stor_names: Vec<SharedString> =
+                    vec![SharedString::from("(не выбрано)")];
+                stor_names.extend(storages.iter().map(|s| SharedString::from(s.name.as_str())));
+                let first_src = src_names.first().cloned().unwrap_or_default();
                 let _ = slint::invoke_from_event_loop(move || {
-                    if let Some(w) = weak2.upgrade() {
-                        w.set_job_dialog_sources(ModelRc::from(Rc::new(VecModel::from(names))));
+                    if let Some(w) = weak.upgrade() {
+                        w.set_job_dialog_sources(ModelRc::from(Rc::new(VecModel::from(src_names))));
+                        w.set_job_dialog_storages(ModelRc::from(Rc::new(VecModel::from(stor_names))));
                         w.set_job_dialog_id(SharedString::new());
                         w.set_job_dialog_name(SharedString::new());
-                        w.set_job_dialog_source(first);
+                        w.set_job_dialog_source(first_src);
+                        w.set_job_dialog_storage(SharedString::from("(не выбрано)"));
                         w.set_job_dialog_enabled(true);
                         w.set_job_dialog_open(true);
                     }
                 });
             });
-            // suppress unused
             let _ = w;
         });
     }
@@ -56,6 +59,7 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
             let source_name = w.get_job_dialog_source().to_string();
             let enabled = w.get_job_dialog_enabled();
             let editing_id = w.get_job_dialog_id().to_string();
+            let storage_name = w.get_job_dialog_storage().to_string();
             if name.trim().is_empty() || source_name.trim().is_empty() {
                 return;
             }
@@ -63,6 +67,7 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
             let weak = weak.clone();
             tokio::spawn(async move {
                 let sources = ctx.sources.list().await.unwrap_or_default();
+                let storages = ctx.storages.list().await.unwrap_or_default();
                 let Some(src) = sources.iter().find(|s| s.name == source_name) else {
                     warn!(source_name, "save_job: source not found");
                     return;
@@ -104,9 +109,31 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
                         }
                     }
                 };
+                // Собираем targets: выбранное хранилище → один JobTarget.
+                let targets: Vec<domain::JobTarget> = {
+                    let sel = storage_name.trim();
+                    if sel.is_empty() || sel == "(не выбрано)" {
+                        Vec::new()
+                    } else {
+                        storages
+                            .iter()
+                            .find(|s| s.name == sel)
+                            .map(|s| domain::JobTarget {
+                                storage_id: s.id,
+                                remote_path: String::new(),
+                                order_idx: 0,
+                            })
+                            .into_iter()
+                            .collect()
+                    }
+                };
+
                 match commands::jobs::upsert(&ctx, &job).await {
                     Ok(()) => {
-                        info!(job_id = %job.id, "job saved");
+                        if let Err(e) = ctx.jobs.upsert_job_targets(job.id, &targets).await {
+                            warn!(error = %e, "upsert_job_targets failed");
+                        }
+                        info!(job_id = %job.id, targets = targets.len(), "job saved");
                         let weak = weak.clone();
                         let ctx2 = ctx.clone();
                         let _ = slint::invoke_from_event_loop(move || {
@@ -128,6 +155,7 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
         window.on_cancel_job_dialog(move || {
             if let Some(w) = weak.upgrade() {
                 w.set_job_dialog_id(SharedString::new());
+                w.set_job_dialog_storage(SharedString::new());
                 w.set_job_dialog_open(false);
             }
         });
@@ -194,22 +222,32 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
                     return;
                 };
                 let sources = ctx.sources.list().await.unwrap_or_default();
+                let storages = ctx.storages.list().await.unwrap_or_default();
                 let source_name = sources
                     .iter()
                     .find(|s| s.id == job.source_id)
                     .map(|s| SharedString::from(s.name.as_str()))
                     .unwrap_or_default();
-                let names: Vec<SharedString> =
+                let src_names: Vec<SharedString> =
                     sources.iter().map(|s| SharedString::from(s.name.as_str())).collect();
+                let mut stor_names: Vec<SharedString> = vec![SharedString::from("(не выбрано)")];
+                stor_names.extend(storages.iter().map(|s| SharedString::from(s.name.as_str())));
+                // Найдём имя хранилища первого target (если есть).
+                let current_storage = job.targets.first()
+                    .and_then(|t| storages.iter().find(|s| s.id == t.storage_id))
+                    .map(|s| SharedString::from(s.name.as_str()))
+                    .unwrap_or_else(|| SharedString::from("(не выбрано)"));
                 let job_id_str = SharedString::from(job.id.to_string());
                 let job_name = SharedString::from(job.name.as_str());
                 let job_enabled = job.enabled;
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(w) = weak.upgrade() {
-                        w.set_job_dialog_sources(ModelRc::from(Rc::new(VecModel::from(names))));
+                        w.set_job_dialog_sources(ModelRc::from(Rc::new(VecModel::from(src_names))));
+                        w.set_job_dialog_storages(ModelRc::from(Rc::new(VecModel::from(stor_names))));
                         w.set_job_dialog_id(job_id_str);
                         w.set_job_dialog_name(job_name);
                         w.set_job_dialog_source(source_name);
+                        w.set_job_dialog_storage(current_storage);
                         w.set_job_dialog_enabled(job_enabled);
                         w.set_job_dialog_open(true);
                     }
