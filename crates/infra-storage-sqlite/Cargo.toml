@@ -26,6 +26,12 @@ time = { workspace = true }
 uuid = { workspace = true }
 anyhow = { workspace = true }
 
+[features]
+default = []
+test-utils = []
+
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+domain = { workspace = true }
+infra-storage-sqlite = { path = ".", features = ["test-utils"] }

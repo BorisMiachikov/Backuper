@@ -7,8 +7,10 @@ use application::{AppContext, Scheduler};
 use crate::AppWindow;
 
 pub mod jobs;
+pub mod sources;
 
 pub fn wire_all(window: &AppWindow, ctx: AppContext, scheduler: Arc<Scheduler>) {
     let ctx = Arc::new(ctx);
-    jobs::wire(window, ctx, scheduler);
+    jobs::wire(window, ctx.clone(), scheduler);
+    sources::wire(window, ctx);
 }

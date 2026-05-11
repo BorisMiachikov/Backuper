@@ -3601,6 +3601,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "domain",
+ "infra-storage-sqlite",
  "serde",
  "serde_json",
  "shared",

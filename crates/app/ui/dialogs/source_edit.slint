@@ -1,0 +1,119 @@
+import { Palette, LineEdit, ComboBox } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { PrimaryButton, GhostButton } from "../widgets/button.slint";
+
+export component SourceEditDialog inherits Rectangle {
+    in-out property <bool> open: false;
+    in-out property <string> name-value;
+    in-out property <string> path-value;
+    in-out property <string> description-value;
+    in-out property <string> tags-value;
+    in-out property <string> kind-value: "folder";   // "folder" | "one_c_file" | "one_c_server" | "files"
+    in property <[string]> kind-options: ["folder", "one_c_file", "one_c_server", "files"];
+
+    callback save();
+    callback cancel();
+    callback browse-path();
+
+    visible: root.open;
+    width: 100%;
+    height: 100%;
+    background: #00000088;
+
+    TouchArea { clicked => { } } // блокируем клики «сквозь» оверлей
+
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(parent.width - 64px, 560px);
+        height: 460px;
+        background: Theme.bg-elevated;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.border;
+
+        VerticalLayout {
+            padding: Theme.spacing-xl;
+            spacing: Theme.spacing-md;
+
+            Text {
+                text: "Новый источник";
+                font-size: 18px;
+                font-weight: 700;
+                color: Theme.fg;
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Название"; font-size: 12px; color: Theme.fg-muted; }
+                LineEdit {
+                    text <=> root.name-value;
+                    placeholder-text: "например, «Бухгалтерия»";
+                }
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Тип"; font-size: 12px; color: Theme.fg-muted; }
+                ComboBox {
+                    model: root.kind-options;
+                    current-value <=> root.kind-value;
+                }
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Путь"; font-size: 12px; color: Theme.fg-muted; }
+                HorizontalLayout {
+                    spacing: Theme.spacing-sm;
+                    LineEdit {
+                        text <=> root.path-value;
+                        placeholder-text: "D:\\1C\\Бухгалтерия";
+                        horizontal-stretch: 1;
+                    }
+                    GhostButton {
+                        width: 90px;
+                        text: "Обзор…";
+                        clicked => { root.browse-path(); }
+                    }
+                }
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Описание"; font-size: 12px; color: Theme.fg-muted; }
+                LineEdit {
+                    text <=> root.description-value;
+                    placeholder-text: "опционально";
+                }
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Теги (через запятую)"; font-size: 12px; color: Theme.fg-muted; }
+                LineEdit {
+                    text <=> root.tags-value;
+                    placeholder-text: "prod, 1c";
+                }
+            }
+
+            Rectangle { vertical-stretch: 1; }
+
+            HorizontalLayout {
+                alignment: end;
+                spacing: Theme.spacing-sm;
+                GhostButton {
+                    width: 90px;
+                    text: "Отмена";
+                    clicked => { root.cancel(); }
+                }
+                PrimaryButton {
+                    width: 120px;
+                    text: "Сохранить";
+                    enabled: root.name-value != "" && root.path-value != "";
+                    clicked => { root.save(); }
+                }
+            }
+        }
+    }
+}

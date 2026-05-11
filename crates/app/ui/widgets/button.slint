@@ -1,0 +1,56 @@
+import { Palette } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+
+export component PrimaryButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked;
+
+    height: 32px;
+    border-radius: Theme.radius-sm;
+    background: !enabled
+        ? Theme.bg-elevated
+        : (ta.has-hover ? Theme.accent.darker(0.15) : Theme.accent);
+    border-width: 1px;
+    border-color: enabled ? Theme.accent.darker(0.2) : Theme.border;
+
+    Text {
+        text: root.text;
+        color: enabled ? white : Theme.fg-muted;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-weight: 600;
+        font-size: 13px;
+    }
+
+    ta := TouchArea {
+        enabled <=> root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component GhostButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> destructive: false;
+    callback clicked;
+
+    height: 28px;
+    border-radius: Theme.radius-sm;
+    background: ta.has-hover
+        ? (destructive ? Theme.danger.with-alpha(0.12) : Theme.bg-elevated)
+        : transparent;
+    border-width: 1px;
+    border-color: destructive ? Theme.danger.with-alpha(0.4) : Theme.border;
+
+    Text {
+        text: root.text;
+        color: destructive ? Theme.danger : Theme.fg;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 12px;
+    }
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}

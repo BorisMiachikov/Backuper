@@ -8,6 +8,7 @@ use std::path::Path;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::SqlitePool;
 
+mod mappers;
 pub mod repos;
 
 pub use repos::{SqliteJobRepository, SqliteSourceRepository, SqliteStorageRepository};
@@ -35,5 +36,19 @@ pub async fn open_app_db(path: &Path) -> anyhow::Result<SqlitePool> {
 
     sqlx::migrate!("../../migrations").run(&pool).await?;
 
+    Ok(pool)
+}
+
+/// Создаёт пул для in-memory БД с прогнанными миграциями. Только для тестов.
+#[cfg(any(test, feature = "test-utils"))]
+pub async fn open_in_memory() -> anyhow::Result<SqlitePool> {
+    let opts = SqliteConnectOptions::new()
+        .in_memory(true)
+        .foreign_keys(true);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(opts)
+        .await?;
+    sqlx::migrate!("../../migrations").run(&pool).await?;
     Ok(pool)
 }

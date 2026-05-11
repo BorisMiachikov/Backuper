@@ -3,13 +3,17 @@ import { Theme } from "theme.slint";
 import { Sidebar } from "widgets/sidebar.slint";
 import { Dashboard } from "pages/dashboard.slint";
 import { Placeholder } from "pages/placeholder.slint";
+import { SourcesPage, SourceRow } from "pages/sources.slint";
+import { SourceEditDialog } from "dialogs/source_edit.slint";
+
+export { SourceRow }
 
 export struct JobRow {
     id: string,
     name: string,
     last-run: string,
-    status: string,   // "ok" | "error" | "running" | "idle"
-    progress: float,  // 0..1
+    status: string,
+    progress: float,
 }
 
 export component AppWindow inherits Window {
@@ -20,12 +24,27 @@ export component AppWindow inherits Window {
     min-height: 560px;
 
     in-out property <int> current-page: 0;
+
+    // Jobs (Stage 1.2)
     in-out property <[JobRow]> jobs: [];
     in-out property <int> total-jobs: 0;
     in-out property <int> ok-today: 0;
     in-out property <int> failed-today: 0;
     in-out property <string> next-run: "—";
-    in-out property <string> color-scheme: "system"; // "light" | "dark" | "system"
+
+    // Sources
+    in-out property <[SourceRow]> sources: [];
+
+    // Тема (зарезервировано на Stage 6)
+    in-out property <string> color-scheme: "system";
+
+    // Диалог редактирования источника
+    in-out property <bool>   src-dialog-open: false;
+    in-out property <string> src-dialog-name;
+    in-out property <string> src-dialog-path;
+    in-out property <string> src-dialog-description;
+    in-out property <string> src-dialog-tags;
+    in-out property <string> src-dialog-kind: "folder";
 
     callback navigate(int);
     callback run-job-now(string);
@@ -34,6 +53,13 @@ export component AppWindow inherits Window {
     callback delete-job(string);
     callback open-logs(string);
     callback theme-changed(string);
+
+    callback add-source();
+    callback edit-source(string);
+    callback delete-source(string);
+    callback save-source();             // submit формы
+    callback cancel-source-dialog();
+    callback browse-source-path();
 
     HorizontalLayout {
         spacing: 0;
@@ -58,24 +84,39 @@ export component AppWindow inherits Window {
             }
             if root.current-page == 1 : Placeholder {
                 title: "Задания";
-                hint: "CRUD заданий, фильтры и «Выполнить сейчас» появятся на Stage 2.";
+                hint: "CRUD заданий, фильтры и «Выполнить сейчас» — Stage 1.2.";
             }
-            if root.current-page == 2 : Placeholder {
-                title: "Источники";
-                hint: "1С (файловые/серверные), папки, отдельные файлы — Stage 2.";
+            if root.current-page == 2 : SourcesPage {
+                sources: root.sources;
+                add-source     => { root.add-source(); }
+                edit-source(id)=> { root.edit-source(id); }
+                delete-source(id) => { root.delete-source(id); }
             }
             if root.current-page == 3 : Placeholder {
                 title: "Хранилища";
-                hint: "Локальный диск + UNC сейчас, Яндекс.Диск/GDrive — Stage 4.";
+                hint: "Локальный диск + UNC сейчас, облака — Stage 4.";
             }
             if root.current-page == 4 : Placeholder {
                 title: "Журнал";
-                hint: "Просмотр логов с фильтрами и экспортом — Stage 2.";
+                hint: "Просмотр логов с фильтрами — Stage 2.";
             }
             if root.current-page == 5 : Placeholder {
                 title: "Настройки";
                 hint: "Темы, автозапуск, язык, обновления — Stage 6.";
             }
         }
+    }
+
+    // Модальный диалог поверх всего окна
+    SourceEditDialog {
+        open <=> root.src-dialog-open;
+        name-value <=> root.src-dialog-name;
+        path-value <=> root.src-dialog-path;
+        description-value <=> root.src-dialog-description;
+        tags-value <=> root.src-dialog-tags;
+        kind-value <=> root.src-dialog-kind;
+        save   => { root.save-source(); }
+        cancel => { root.cancel-source-dialog(); }
+        browse-path => { root.browse-source-path(); }
     }
 }
