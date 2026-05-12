@@ -14,7 +14,10 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-use domain::{DomainEvent, Job, JobRun, JobRunStatus, JobTrigger, PipelineStage, RetentionPolicy, StageProgress};
+use domain::{
+    DomainEvent, Job, JobRun, JobRunStatus, JobTrigger, Notification, NotificationLevel,
+    PipelineStage, RetentionPolicy, StageProgress,
+};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -90,6 +93,23 @@ pub async fn run(
         warn!(error = %e, "update_run failed");
     }
     emit_finished(ctx, &run);
+
+    // Toast-уведомление о результате.
+    let notif = match &outcome {
+        Ok(()) => Notification {
+            title: job.name.clone(),
+            body: format!("Бэкап выполнен: {} файлов", run.files_count),
+            level: NotificationLevel::Success,
+        },
+        Err(e) => Notification {
+            title: job.name.clone(),
+            body: format!("Ошибка бэкапа: {e}"),
+            level: NotificationLevel::Error,
+        },
+    };
+    if let Err(e) = ctx.notifier.notify(notif).await {
+        warn!(error = %e, "notification failed");
+    }
 
     match outcome {
         Ok(()) => Ok(run),

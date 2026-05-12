@@ -50,6 +50,18 @@ impl Scheduler {
         self.queue.push(trigger).await;
     }
 
+    /// Поставить в очередь все включённые задания (вызов из трея «Запустить всё»).
+    pub async fn enqueue_all_enabled(&self) {
+        match self.ctx.jobs.list().await {
+            Ok(jobs) => {
+                for job in jobs.iter().filter(|j| j.enabled) {
+                    self.queue.push(JobTrigger::manual(job.id)).await;
+                }
+            }
+            Err(e) => warn!(error = %e, "enqueue_all_enabled: list failed"),
+        }
+    }
+
     /// Главный loop: ticker для расписаний + диспатч worker'ов.
     pub async fn run(self: Arc<Self>) {
         let ticker = self.clone();

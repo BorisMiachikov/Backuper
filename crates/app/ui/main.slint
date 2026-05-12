@@ -115,6 +115,7 @@ export component AppWindow inherits Window {
     // ── Settings ─────────────────────────────────────────────────
     in-out property <string> settings-theme: "system";
     in-out property <int>    settings-max-parallel: 2;
+    in-out property <bool>   settings-autostart: false;
     callback save-settings();
 
     // ── Misc ─────────────────────────────────────────────────────
@@ -168,9 +169,10 @@ export component AppWindow inherits Window {
                 runs: root.journal-runs;
             }
             if root.current-page == 5 : SettingsPage {
-                theme-value    <=> root.settings-theme;
-                max-parallel   <=> root.settings-max-parallel;
-                save-settings  => { root.save-settings(); }
+                theme-value      <=> root.settings-theme;
+                max-parallel     <=> root.settings-max-parallel;
+                autostart-value  <=> root.settings-autostart;
+                save-settings    => { root.save-settings(); }
             }
         }
     }

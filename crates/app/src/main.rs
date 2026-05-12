@@ -4,6 +4,7 @@ mod bindings;
 mod bootstrap;
 mod handlers;
 mod notifications;
+mod tray;
 
 slint::include_modules!();
 
@@ -41,12 +42,27 @@ fn main() -> anyhow::Result<()> {
         rt.spawn(async move { s.run().await });
     }
 
-    // Удерживаем рантайм живым на время GUI: поток рантайма не блокируется,
-    // главный поток отдаём Slint event loop'у.
+    // Удерживаем рантайм живым на время GUI.
     let _rt_guard = rt.enter();
 
     let window = AppWindow::new()?;
-    handlers::wire_all(&window, ctx, scheduler);
+    handlers::wire_all(&window, ctx, scheduler.clone());
+
+    // Закрытие окна — скрываем в трей, не завершаем процесс.
+    window.window().on_close_requested(|| slint::CloseRequestResponse::HideWindow);
+
+    // Системный трей.
+    let tray_mgr = tray::TrayManager::new(window.as_weak(), scheduler)?;
+
+    // Таймер для опроса событий трея (~10 раз в секунду).
+    let poll_timer = slint::Timer::default();
+    poll_timer.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_millis(100),
+        move || {
+            tray_mgr.poll();
+        },
+    );
 
     info!("entering Slint event loop");
     if let Err(e) = window.run() {

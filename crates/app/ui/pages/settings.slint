@@ -1,4 +1,4 @@
-import { ComboBox, SpinBox } from "std-widgets.slint";
+import { ComboBox, SpinBox, CheckBox } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { PrimaryButton } from "../widgets/button.slint";
 import { Card } from "../widgets/card.slint";
@@ -6,6 +6,7 @@ import { Card } from "../widgets/card.slint";
 export component SettingsPage inherits Rectangle {
     in-out property <string> theme-value: "system";
     in-out property <int>    max-parallel: 2;
+    in-out property <bool>   autostart-value: false;
 
     callback save-settings();
 
@@ -71,6 +72,15 @@ export component SettingsPage inherits Rectangle {
                         minimum: 1;
                         maximum: 16;
                         value <=> root.max-parallel;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: Theme.spacing-md;
+                    alignment: start;
+                    CheckBox {
+                        text: "Запускать при входе в Windows";
+                        checked <=> root.autostart-value;
                     }
                 }
 
