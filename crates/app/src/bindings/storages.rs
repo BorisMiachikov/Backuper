@@ -44,6 +44,11 @@ fn config_display(config_json: &str, kind: StorageKind) -> String {
         StorageKind::Local  => v["root"].as_str().unwrap_or("").to_owned(),
         StorageKind::Smb    => v["unc"].as_str().unwrap_or("").to_owned(),
         StorageKind::YaDisk | StorageKind::GDrive => {
+            // Stage 5: токен в vault — показываем метку.
+            if v["token_ref"].is_string() {
+                return "(токен зашифрован)".to_owned();
+            }
+            // Legacy: plain-токен в config_json.
             let token = v["token"].as_str().unwrap_or("");
             if token.len() > 8 {
                 format!("{}…", &token[..8])

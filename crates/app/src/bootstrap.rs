@@ -4,15 +4,16 @@ use std::sync::Arc;
 
 use application::clock::SystemClock;
 use application::context::{AppContext, StorageRegistry};
-use domain::{StorageDescriptor, StorageKind, StorageRepository};
+use domain::{SecretVault, StorageDescriptor, StorageKind, StorageRepository};
 use infra_1c::{DefaultOneCRunner, OneCConfig};
 use infra_cloud_gdrive::GDriveClient;
 use infra_cloud_yadisk::YaDiskClient;
 use infra_fs::LocalStorage;
-use infra_secrets::InMemoryVault;
+use infra_secrets::DpapiVault;
 use infra_storage_sqlite::{
     SqliteJobRepository, SqliteSettingsRepository, SqliteSourceRepository, SqliteStorageRepository,
 };
+use secrecy::ExposeSecret;
 use tokio::sync::broadcast;
 use tracing::{info, warn};
 
@@ -36,6 +37,10 @@ pub async fn build_context() -> anyhow::Result<AppContext> {
         Err(e) => tracing::warn!(error = %e, "could not mark interrupted runs"),
     }
 
+    // Vault: DpapiVault (файл + Windows DPAPI).
+    let vault_path = shared::paths::data_dir().join("vault.dat");
+    let vault: Arc<dyn SecretVault> = Arc::new(DpapiVault::open(vault_path).await?);
+
     // Заполняем StorageRegistry по записям из БД.
     let registry = Arc::new(StorageRegistry::new());
     match storages.list().await {
@@ -44,7 +49,7 @@ pub async fn build_context() -> anyhow::Result<AppContext> {
                 if !desc.enabled {
                     continue;
                 }
-                match make_storage(desc) {
+                match make_storage(desc, &vault).await {
                     Ok(s) => registry.register(desc.id, s),
                     Err(e) => warn!(storage_id = %desc.id, error = %e, "failed to init storage"),
                 }
@@ -53,9 +58,6 @@ pub async fn build_context() -> anyhow::Result<AppContext> {
         }
         Err(e) => warn!(error = %e, "could not load storages"),
     }
-
-    // Vault: Stage 0 — in-memory. Stage 5 — DPAPI + AES-GCM.
-    let vault = Arc::new(InMemoryVault::new());
 
     let onec = Arc::new(DefaultOneCRunner::new(OneCConfig {
         one_cv_8_exe: std::path::PathBuf::from(r"C:\Program Files\1cv8\common\1cestart.exe"),
@@ -87,7 +89,14 @@ pub async fn read_max_parallel(ctx: &AppContext) -> usize {
     }
 }
 
-pub fn make_storage(desc: &StorageDescriptor) -> anyhow::Result<Arc<dyn domain::Storage>> {
+/// Создаёт живой `Storage`-адаптер по дескриптору.
+///
+/// Для облачных хранилищ сначала пытается взять токен из vault (через `secret_ref`),
+/// с откатом на plain-токен в `config_json` (legacy / новое хранилище до первого сохранения).
+pub async fn make_storage(
+    desc: &StorageDescriptor,
+    vault: &Arc<dyn SecretVault>,
+) -> anyhow::Result<Arc<dyn domain::Storage>> {
     let cfg: serde_json::Value = serde_json::from_str(&desc.config_json)
         .unwrap_or(serde_json::Value::Object(Default::default()));
     match desc.kind {
@@ -100,12 +109,28 @@ pub fn make_storage(desc: &StorageDescriptor) -> anyhow::Result<Arc<dyn domain::
             Ok(Arc::new(LocalStorage::new(unc)))
         }
         StorageKind::YaDisk => {
-            let token = cfg["token"].as_str().unwrap_or("").to_owned();
+            let token = resolve_cloud_token(&cfg, desc.secret_ref.as_deref(), vault).await;
             Ok(Arc::new(YaDiskClient::new(token)))
         }
         StorageKind::GDrive => {
-            let token = cfg["token"].as_str().unwrap_or("").to_owned();
+            let token = resolve_cloud_token(&cfg, desc.secret_ref.as_deref(), vault).await;
             Ok(Arc::new(GDriveClient::new(token)))
         }
     }
+}
+
+/// Получить OAuth-токен: сначала из vault (если задан `secret_ref`),
+/// потом fallback на plain `config_json["token"]`.
+async fn resolve_cloud_token(
+    cfg: &serde_json::Value,
+    secret_ref: Option<&str>,
+    vault: &Arc<dyn SecretVault>,
+) -> String {
+    if let Some(r) = secret_ref {
+        match vault.get(r).await {
+            Ok(sv) => return sv.payload.expose_secret().to_owned(),
+            Err(e) => warn!(r#ref = r, error = %e, "vault lookup failed, falling back to config"),
+        }
+    }
+    cfg["token"].as_str().unwrap_or("").to_owned()
 }

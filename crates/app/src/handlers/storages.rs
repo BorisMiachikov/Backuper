@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use application::commands;
 use application::AppContext;
-use domain::StorageDescriptor;
+use domain::vault::SecretKind;
+use domain::{StorageDescriptor, StorageKind};
+use secrecy::{ExposeSecret, SecretString};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel, Weak};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -49,7 +51,22 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>) {
                     return;
                 };
                 let kind_str = SharedString::from(kind_to_combo(desc.kind));
-                let path = SharedString::from(path_from_config_json(&desc.config_json, desc.kind));
+                // Для облаков — пытаемся прочитать токен из vault.
+                let path = match desc.kind {
+                    StorageKind::YaDisk | StorageKind::GDrive => {
+                        if let Some(r) = &desc.secret_ref {
+                            match ctx.vault.get(r).await {
+                                Ok(sv) => SharedString::from(sv.payload.expose_secret().to_owned()),
+                                Err(_) => SharedString::from(
+                                    path_from_config_json(&desc.config_json, desc.kind),
+                                ),
+                            }
+                        } else {
+                            SharedString::from(path_from_config_json(&desc.config_json, desc.kind))
+                        }
+                    }
+                    _ => SharedString::from(path_from_config_json(&desc.config_json, desc.kind)),
+                };
                 let id_str = SharedString::from(desc.id.to_string());
                 let name = SharedString::from(desc.name.as_str());
                 let enabled = desc.enabled;
@@ -79,6 +96,14 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>) {
             let ctx = ctx.clone();
             let weak = weak.clone();
             tokio::spawn(async move {
+                // Удаляем секрет из vault, если есть.
+                if let Ok(Some(desc)) = ctx.storages.get(uuid).await {
+                    if let Some(r) = &desc.secret_ref {
+                        if let Err(e) = ctx.vault.delete(r).await {
+                            warn!(r#ref = r, error = %e, "vault delete failed");
+                        }
+                    }
+                }
                 match commands::storages::delete(&ctx, uuid).await {
                     Ok(()) => {
                         ctx.storage_registry.remove(uuid);
@@ -131,18 +156,71 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>) {
             let kind = kind_from_combo(w.get_stor_dialog_kind().as_str());
             let enabled = w.get_stor_dialog_enabled();
             let editing_id = w.get_stor_dialog_id().to_string();
-            let config_json = path_to_config_json(kind, &path);
 
             let ctx = ctx.clone();
             let weak = weak.clone();
             tokio::spawn(async move {
+                // Для облачных хранилищ: шифруем токен в vault, в config_json пишем ссылку.
+                let (config_json, secret_ref_opt) = match kind {
+                    StorageKind::YaDisk | StorageKind::GDrive => {
+                        // Восстанавливаем или создаём secret_ref.
+                        let existing_ref: Option<String> = if !editing_id.is_empty() {
+                            Uuid::parse_str(&editing_id)
+                                .ok()
+                                .and_then(|uuid| {
+                                    // Синхронный путь невозможен, собираем ref по соглашению.
+                                    // Ref = "storage::<uuid>", как при создании.
+                                    Some(format!("storage::{uuid}"))
+                                })
+                        } else {
+                            None
+                        };
+
+                        let new_id = if editing_id.is_empty() {
+                            Uuid::now_v7()
+                        } else {
+                            Uuid::parse_str(&editing_id).unwrap_or_else(|_| Uuid::now_v7())
+                        };
+
+                        let vault_ref = existing_ref
+                            .unwrap_or_else(|| format!("storage::{new_id}"));
+
+                        if let Err(e) = ctx
+                            .vault
+                            .put(
+                                &vault_ref,
+                                SecretKind::OAuthToken,
+                                SecretString::from(path.clone()),
+                            )
+                            .await
+                        {
+                            warn!(error = %e, "vault put failed");
+                        }
+
+                        let cfg = serde_json::json!({ "token_ref": vault_ref }).to_string();
+                        (cfg, Some(vault_ref))
+                    }
+                    _ => (path_to_config_json(kind, &path), None),
+                };
+
                 let desc = if editing_id.is_empty() {
+                    let new_id = match kind {
+                        StorageKind::YaDisk | StorageKind::GDrive => {
+                            // ID уже закодирован в vault_ref — парсим обратно.
+                            secret_ref_opt
+                                .as_deref()
+                                .and_then(|r| r.strip_prefix("storage::"))
+                                .and_then(|s| Uuid::parse_str(s).ok())
+                                .unwrap_or_else(Uuid::now_v7)
+                        }
+                        _ => Uuid::now_v7(),
+                    };
                     StorageDescriptor {
-                        id: Uuid::now_v7(),
+                        id: new_id,
                         kind,
                         name,
                         config_json,
-                        secret_ref: None,
+                        secret_ref: secret_ref_opt,
                         enabled,
                     }
                 } else {
@@ -156,7 +234,7 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>) {
                             kind,
                             name,
                             config_json,
-                            secret_ref: existing.secret_ref,
+                            secret_ref: secret_ref_opt.or(existing.secret_ref),
                             enabled,
                         },
                         _ => {
@@ -169,9 +247,8 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>) {
                 match commands::storages::upsert(&ctx, &desc).await {
                     Ok(()) => {
                         info!(storage_id = %desc.id, "storage saved");
-                        // Обновляем реестр.
                         if desc.enabled {
-                            match make_storage(&desc) {
+                            match make_storage(&desc, &ctx.vault).await {
                                 Ok(s) => ctx.storage_registry.register(desc.id, s),
                                 Err(e) => warn!(error = %e, "failed to register storage"),
                             }
