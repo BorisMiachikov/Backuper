@@ -6,13 +6,15 @@ export component StorageEditDialog inherits Rectangle {
     in-out property <bool>   open: false;
     in-out property <string> dialog-id: "";        // "" = новое, uuid = редактирование
     in-out property <string> name-value;
-    in-out property <string> kind-value: "local";  // "local" | "smb"
-    in-out property <string> path-value;           // root (local) или unc (smb)
+    in-out property <string> kind-value: "local";  // "local" | "smb" | "yadisk" | "gdrive"
+    in-out property <string> path-value;           // root / unc / OAuth-токен для облака
     in-out property <bool>   enabled-value: true;
 
     callback save();
     callback cancel();
     callback browse-path();
+
+    property <bool> is-cloud: root.kind-value == "yadisk" || root.kind-value == "gdrive";
 
     visible: root.open;
     width: 100%;
@@ -25,7 +27,7 @@ export component StorageEditDialog inherits Rectangle {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         width: min(parent.width - 64px, 520px);
-        height: 360px;
+        height: 380px;
         background: Theme.bg-elevated;
         border-radius: Theme.radius-md;
         border-width: 1px;
@@ -55,15 +57,22 @@ export component StorageEditDialog inherits Rectangle {
                 spacing: 4px;
                 Text { text: "Тип"; font-size: 12px; color: Theme.fg-muted; }
                 ComboBox {
-                    model: ["Локальная папка", "Сетевой UNC-путь"];
-                    current-index: root.kind-value == "smb" ? 1 : 0;
+                    model: ["Локальная папка", "Сетевой UNC-путь", "Яндекс.Диск", "Google Drive"];
+                    current-index: root.kind-value == "smb" ? 1
+                                 : root.kind-value == "yadisk" ? 2
+                                 : root.kind-value == "gdrive" ? 3
+                                 : 0;
                     selected(val) => {
-                        root.kind-value = val == "Сетевой UNC-путь" ? "smb" : "local";
+                        root.kind-value = val == "Сетевой UNC-путь" ? "smb"
+                                        : val == "Яндекс.Диск" ? "yadisk"
+                                        : val == "Google Drive" ? "gdrive"
+                                        : "local";
                     }
                 }
             }
 
-            VerticalLayout {
+            // Поле пути — только для Local / SMB
+            if !root.is-cloud : VerticalLayout {
                 spacing: 4px;
                 Text {
                     text: root.kind-value == "smb" ? "UNC-путь (\\\\сервер\\папка)" : "Путь к папке";
@@ -84,6 +93,32 @@ export component StorageEditDialog inherits Rectangle {
                         text: "Browse…";
                         clicked => { root.browse-path(); }
                     }
+                }
+            }
+
+            // Поле OAuth-токена — только для облаков
+            if root.is-cloud : VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: root.kind-value == "yadisk"
+                        ? "OAuth-токен Яндекс"
+                        : "OAuth-токен Google";
+                    font-size: 12px;
+                    color: Theme.fg-muted;
+                }
+                LineEdit {
+                    text <=> root.path-value;
+                    placeholder-text: root.kind-value == "yadisk"
+                        ? "y0_AAAAAAAAAAAAAAAv..."
+                        : "ya29.a0...";
+                    input-type: password;
+                }
+                Text {
+                    text: root.kind-value == "yadisk"
+                        ? "Получить: oauth.yandex.ru → Яндекс.Диск API"
+                        : "Получить: developers.google.com → Drive API v3";
+                    font-size: 10px;
+                    color: Theme.fg-muted;
                 }
             }
 

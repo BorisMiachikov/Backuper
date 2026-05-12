@@ -6,6 +6,8 @@ use application::clock::SystemClock;
 use application::context::{AppContext, StorageRegistry};
 use domain::{StorageDescriptor, StorageKind, StorageRepository};
 use infra_1c::{DefaultOneCRunner, OneCConfig};
+use infra_cloud_gdrive::GDriveClient;
+use infra_cloud_yadisk::YaDiskClient;
 use infra_fs::LocalStorage;
 use infra_secrets::InMemoryVault;
 use infra_storage_sqlite::{
@@ -97,6 +99,13 @@ pub fn make_storage(desc: &StorageDescriptor) -> anyhow::Result<Arc<dyn domain::
             let unc = cfg["unc"].as_str().unwrap_or(".");
             Ok(Arc::new(LocalStorage::new(unc)))
         }
-        kind => anyhow::bail!("unsupported storage kind for registry: {}", kind.as_str()),
+        StorageKind::YaDisk => {
+            let token = cfg["token"].as_str().unwrap_or("").to_owned();
+            Ok(Arc::new(YaDiskClient::new(token)))
+        }
+        StorageKind::GDrive => {
+            let token = cfg["token"].as_str().unwrap_or("").to_owned();
+            Ok(Arc::new(GDriveClient::new(token)))
+        }
     }
 }
