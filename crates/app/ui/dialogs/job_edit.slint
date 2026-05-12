@@ -1,4 +1,4 @@
-import { ComboBox, LineEdit, CheckBox } from "std-widgets.slint";
+import { ComboBox, LineEdit, CheckBox, SpinBox } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { PrimaryButton, GhostButton } from "../widgets/button.slint";
 
@@ -11,6 +11,8 @@ export component JobEditDialog inherits Rectangle {
     in property <[string]> source-options: [];
     in property <[string]> storage-options: [];
     in-out property <string> storage-value;   // имя хранилища (пусто = не выбрано)
+    in-out property <int>    keep-last-value: 14;
+    in-out property <int>    max-age-days-value: 0;
 
     callback save();
     callback cancel();
@@ -26,7 +28,7 @@ export component JobEditDialog inherits Rectangle {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         width: min(parent.width - 64px, 520px);
-        height: 440px;
+        height: 540px;
         background: Theme.bg-elevated;
         border-radius: Theme.radius-md;
         border-width: 1px;
@@ -77,6 +79,26 @@ export component JobEditDialog inherits Rectangle {
                 if root.storage-options.length > 0 : ComboBox {
                     model: root.storage-options;
                     current-value <=> root.storage-value;
+                }
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Хранить последних N архивов (0 = без ограничений)"; font-size: 12px; color: Theme.fg-muted; }
+                SpinBox {
+                    value <=> root.keep-last-value;
+                    minimum: 0;
+                    maximum: 999;
+                }
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Удалять архивы старше N дней (0 = не удалять)"; font-size: 12px; color: Theme.fg-muted; }
+                SpinBox {
+                    value <=> root.max-age-days-value;
+                    minimum: 0;
+                    maximum: 3650;
                 }
             }
 

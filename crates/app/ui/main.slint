@@ -69,6 +69,8 @@ export component AppWindow inherits Window {
     in-out property <[string]> job-dialog-storages: [];
     in-out property <string> job-dialog-storage: "";
     in-out property <string> job-dialog-id: "";    // "" = add, uuid = edit
+    in-out property <int>    job-dialog-keep-last: 14;
+    in-out property <int>    job-dialog-max-age-days: 0;
 
     callback add-job();
     callback edit-job(string);
@@ -195,6 +197,8 @@ export component AppWindow inherits Window {
         source-options: root.job-dialog-sources;
         storage-options: root.job-dialog-storages;
         storage-value <=> root.job-dialog-storage;
+        keep-last-value <=> root.job-dialog-keep-last;
+        max-age-days-value <=> root.job-dialog-max-age-days;
         save   => { root.save-job(); }
         cancel => { root.cancel-job-dialog(); }
     }

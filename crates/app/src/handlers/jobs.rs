@@ -41,6 +41,8 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
                         w.set_job_dialog_source(first_src);
                         w.set_job_dialog_storage(SharedString::from("(не выбрано)"));
                         w.set_job_dialog_enabled(true);
+                        w.set_job_dialog_keep_last(14);
+                        w.set_job_dialog_max_age_days(0);
                         w.set_job_dialog_open(true);
                     }
                 });
@@ -60,6 +62,8 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
             let enabled = w.get_job_dialog_enabled();
             let editing_id = w.get_job_dialog_id().to_string();
             let storage_name = w.get_job_dialog_storage().to_string();
+            let keep_last = w.get_job_dialog_keep_last() as u32;
+            let max_age_days = w.get_job_dialog_max_age_days() as u32;
             if name.trim().is_empty() || source_name.trim().is_empty() {
                 return;
             }
@@ -73,6 +77,11 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
                     return;
                 };
                 let now = OffsetDateTime::now_utc();
+                let retention = RetentionPolicy {
+                    keep_last: if keep_last > 0 { Some(keep_last) } else { None },
+                    max_age_days: if max_age_days > 0 { Some(max_age_days) } else { None },
+                    ..RetentionPolicy::default()
+                };
                 let job = if editing_id.is_empty() {
                     Job {
                         id: uuid::Uuid::now_v7(),
@@ -80,7 +89,7 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
                         name,
                         enabled,
                         archive: ArchiveConfig::default(),
-                        retention: RetentionPolicy::default(),
+                        retention,
                         exclude: ExcludeRules::default(),
                         pre_cmd: None,
                         post_cmd: None,
@@ -100,6 +109,7 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
                             source_id: src.id,
                             name,
                             enabled,
+                            retention,
                             updated_at: now,
                             ..existing
                         },
@@ -240,6 +250,8 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
                 let job_id_str = SharedString::from(job.id.to_string());
                 let job_name = SharedString::from(job.name.as_str());
                 let job_enabled = job.enabled;
+                let keep_last = job.retention.keep_last.unwrap_or(14) as i32;
+                let max_age_days = job.retention.max_age_days.unwrap_or(0) as i32;
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(w) = weak.upgrade() {
                         w.set_job_dialog_sources(ModelRc::from(Rc::new(VecModel::from(src_names))));
@@ -249,6 +261,8 @@ pub fn wire(window: &AppWindow, ctx: Arc<AppContext>, sched: Arc<Scheduler>) {
                         w.set_job_dialog_source(source_name);
                         w.set_job_dialog_storage(current_storage);
                         w.set_job_dialog_enabled(job_enabled);
+                        w.set_job_dialog_keep_last(keep_last);
+                        w.set_job_dialog_max_age_days(max_age_days);
                         w.set_job_dialog_open(true);
                     }
                 });

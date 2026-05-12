@@ -8,11 +8,13 @@
 //! Этого достаточно, чтобы UI начал получать реальные runs; полноценные стадии
 //! (1С, облака, retention, hooks) добавляются на Stage 2-4.
 
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
+use std::time::SystemTime;
 
-use domain::{DomainEvent, Job, JobRun, JobRunStatus, JobTrigger, PipelineStage, StageProgress};
+use domain::{DomainEvent, Job, JobRun, JobRunStatus, JobTrigger, PipelineStage, RetentionPolicy, StageProgress};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -157,6 +159,16 @@ async fn backup_pipeline(
                 )),
             }
             emit_stage(ctx, job.id, run.id, PipelineStage::Upload, (idx + 1) as f32 / total as f32);
+        }
+    }
+
+    // Retention stage — удаляем лишние локальные архивы.
+    {
+        let policy = &job.retention;
+        if policy.keep_last.is_some() || policy.max_age_days.is_some() {
+            emit_stage(ctx, job.id, run.id, PipelineStage::Retention, 0.0);
+            apply_retention(job, policy)?;
+            emit_stage(ctx, job.id, run.id, PipelineStage::Retention, 1.0);
         }
     }
 
@@ -311,4 +323,52 @@ fn emit_stage(ctx: &AppContext, job_id: Uuid, run_id: Uuid, stage: PipelineStage
         bytes_done: 0,
         bytes_total: None,
     }));
+}
+
+fn apply_retention(job: &Job, policy: &RetentionPolicy) -> Result<(), PipelineError> {
+    let dir = shared::paths::data_dir()
+        .join("archives")
+        .join(sanitize(&job.name));
+    if !dir.exists() {
+        return Ok(());
+    }
+
+    let mut entries: Vec<(PathBuf, SystemTime)> = std::fs::read_dir(&dir)?
+        .flatten()
+        .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("zip"))
+        .filter_map(|e| {
+            let mt = e.metadata().ok()?.modified().ok()?;
+            Some((e.path(), mt))
+        })
+        .collect();
+
+    // Новейшие файлы первыми.
+    entries.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let now = SystemTime::now();
+    let mut to_delete: HashSet<PathBuf> = HashSet::new();
+
+    if let Some(keep) = policy.keep_last {
+        for (path, _) in entries.iter().skip(keep as usize) {
+            to_delete.insert(path.clone());
+        }
+    }
+
+    if let Some(max_days) = policy.max_age_days {
+        let threshold = std::time::Duration::from_secs(max_days as u64 * 86_400);
+        for (path, mtime) in &entries {
+            if now.duration_since(*mtime).map(|d| d > threshold).unwrap_or(false) {
+                to_delete.insert(path.clone());
+            }
+        }
+    }
+
+    for path in &to_delete {
+        match std::fs::remove_file(path) {
+            Ok(()) => info!(path = %path.display(), "retention: deleted"),
+            Err(e) => warn!(path = %path.display(), error = %e, "retention: delete failed"),
+        }
+    }
+
+    Ok(())
 }

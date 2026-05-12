@@ -65,6 +65,8 @@ pub struct RetentionPolicy {
     pub keep_last: Option<u32>,
     pub max_total_gb: Option<u32>,
     pub min_age_days: Option<u32>,
+    #[serde(default)]
+    pub max_age_days: Option<u32>,
 }
 
 impl Default for RetentionPolicy {
@@ -73,6 +75,7 @@ impl Default for RetentionPolicy {
             keep_last: Some(14),
             max_total_gb: None,
             min_age_days: None,
+            max_age_days: None,
         }
     }
 }
