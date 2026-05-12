@@ -16,8 +16,9 @@ use std::time::SystemTime;
 
 use domain::{
     DomainEvent, Job, JobRun, JobRunStatus, JobTrigger, Notification, NotificationLevel,
-    PipelineStage, RetentionPolicy, StageProgress,
+    PipelineStage, RetentionPolicy, SourceKind, StageProgress,
 };
+use domain::onec::{OneCFileBase, OneCServerBase};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -132,19 +133,29 @@ async fn backup_pipeline(
     info!(job_id = %job.id, source_id = %source.id, "pipeline: collecting files");
     emit_stage(ctx, job.id, run.id, PipelineStage::Collect, 0.0);
 
-    let files = collect_files(&source.path)?;
+    // Ветвление по типу источника: Folder/Files — walkdir; 1С — выгрузка .dt.
+    let (files, collect_root, temp_dir) =
+        collect_for_source(ctx, run, &source).await?;
     run.files_count = files.len() as u64;
     run.bytes_in = files.iter().map(|(_, size)| *size).sum();
     debug!(files = run.files_count, bytes_in = run.bytes_in, "pipeline: collected");
+    emit_stage(ctx, job.id, run.id, PipelineStage::Collect, 1.0);
 
     emit_stage(ctx, job.id, run.id, PipelineStage::Archive, 0.0);
     let archive_path = build_archive_path(job, run.id)?;
-    let archive_size = create_archive(&files, &source.path, &archive_path, |done, total| {
+    let archive_size = create_archive(&files, &collect_root, &archive_path, |done, total| {
         let pct = if total > 0 { done as f32 / total as f32 } else { 0.0 };
         emit_stage(ctx, job.id, run.id, PipelineStage::Archive, pct);
     })?;
     run.bytes_out = archive_size;
     run.archive_path = Some(archive_path.to_string_lossy().into_owned());
+
+    // Удаляем временный каталог с выгрузкой 1С (если создавался).
+    if let Some(tmp) = temp_dir {
+        if let Err(e) = std::fs::remove_dir_all(&tmp) {
+            warn!(path = %tmp.display(), error = %e, "1c dump: temp cleanup failed");
+        }
+    }
 
     emit_stage(ctx, job.id, run.id, PipelineStage::Verify, 0.0);
     let _hash = sha256_of(&archive_path)?;
@@ -201,6 +212,67 @@ async fn backup_pipeline(
         "pipeline: success"
     );
     Ok(())
+}
+
+/// Собрать файлы для архивирования.
+/// Возвращает: (файлы, корневой каталог для вычисления путей в архиве, временный каталог для удаления).
+async fn collect_for_source(
+    ctx: &AppContext,
+    run: &JobRun,
+    source: &domain::Source,
+) -> Result<(Vec<(PathBuf, u64)>, PathBuf, Option<PathBuf>), PipelineError> {
+    match &source.kind {
+        SourceKind::Folder | SourceKind::Files { .. } => {
+            let files = collect_files(&source.path)?;
+            Ok((files, source.path.clone(), None))
+        }
+        SourceKind::OneCFile => {
+            let tmp_dir = shared::paths::data_dir()
+                .join("tmp")
+                .join(run.id.to_string());
+            std::fs::create_dir_all(&tmp_dir)?;
+            let dt_path = tmp_dir.join("dump.dt");
+
+            let base = OneCFileBase {
+                path: source.path.clone(),
+                user: None,
+                password: None,
+            };
+            ctx.onec
+                .dump_file_base(&base, &dt_path)
+                .await
+                .map_err(|e| PipelineError::Fatal(format!("1C dump_file_base: {e}")))?;
+
+            let size = std::fs::metadata(&dt_path)?.len();
+            Ok((vec![(dt_path, size)], tmp_dir.clone(), Some(tmp_dir)))
+        }
+        SourceKind::OneCServer {
+            server,
+            ref_base,
+            cluster_port,
+        } => {
+            let tmp_dir = shared::paths::data_dir()
+                .join("tmp")
+                .join(run.id.to_string());
+            std::fs::create_dir_all(&tmp_dir)?;
+            let dt_path = tmp_dir.join("dump.dt");
+
+            let base = OneCServerBase {
+                server: server.clone(),
+                cluster_port: *cluster_port,
+                ref_base: ref_base.clone(),
+                user: None,
+                password: None,
+            };
+            ctx.onec
+                .dump_server_base(&base, &dt_path)
+                .await
+                .map_err(|e| PipelineError::Fatal(format!("1C dump_server_base: {e}")))?;
+
+            let size = std::fs::metadata(&dt_path)?.len();
+            Ok((vec![(dt_path, size)], tmp_dir.clone(), Some(tmp_dir)))
+        }
+    }
 }
 
 fn collect_files(root: &std::path::Path) -> Result<Vec<(PathBuf, u64)>, PipelineError> {
